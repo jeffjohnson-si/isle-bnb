@@ -1,0 +1,53 @@
+{
+  "name": "Isle BnB — Pacific island stays",
+  "short_name": "Isle BnB",
+  "description": "Book resorts, hotels, lodges and family guesthouses across the Pacific Islands. Reserve online, pay on arrival.",
+  "id": "/",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#faf6ef",
+  "theme_color": "#0b3f42",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["travel", "lodging", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Explore stays",
+      "short_name": "Explore",
+      "url": "/#/explore"
+    },
+    {
+      "name": "My bookings",
+      "short_name": "Bookings",
+      "url": "/#/bookings"
+    },
+    {
+      "name": "List your place",
+      "short_name": "Host",
+      "url": "/#/list-your-place"
+    }
+  ]
+}

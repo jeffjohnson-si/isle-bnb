@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="Isle BnB">
+  <rect width="40" height="40" rx="10" fill="#0b3f42" />
+  <circle cx="13.4" cy="12.4" r="4.4" fill="#ffc46b" />
+  <path d="M25.6 31c-.2-6 .6-10.9 3-15.2" stroke="#faf6ef" stroke-width="2.1" stroke-linecap="round" fill="none" />
+  <path d="M28.4 16.2c2.3-1.7 4.7-2.1 7.1-1.3M28.4 16.2c.5-2.5 2-4.4 4.4-5.6M28.4 16.2c-1.9-1.9-2.9-4-3-6.4M28.4 16.2c-2.5.2-4.7-.5-6.6-2" stroke="#faf6ef" stroke-width="1.8" stroke-linecap="round" fill="none" />
+  <path d="M9 33.4c2.6 0 2.6-2 5.2-2s2.6 2 5.2 2 2.6-2 5.2-2 2.6 2 5.2 2" stroke="#35c6bd" stroke-width="2" stroke-linecap="round" fill="none" />
+</svg>
