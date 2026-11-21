@@ -52,6 +52,22 @@ const listingStatus: Record<string, { label: string; tone: string; note: string 
   },
 }
 
+/** A draft created from an application has no photos yet, so it is not with the team. */
+const isDraft = (listing: HostListingState) =>
+  listing.status === 'pending' && (listing.content?.images?.length ?? 0) === 0
+
+const statusNote = (listing: HostListingState) => {
+  if (isDraft(listing)) {
+    return 'Add at least one photo and save — it goes to our team as soon as you do.'
+  }
+  return listingStatus[listing.status]?.note ?? ''
+}
+
+const statusBadge = (listing: HostListingState) =>
+  isDraft(listing)
+    ? { label: 'Draft', tone: 'bg-ink/10 text-ink/60' }
+    : (listingStatus[listing.status] ?? listingStatus.pending)
+
 function ListingEditor({
   token,
   state,
@@ -603,9 +619,7 @@ export function HostDashboardPage() {
   }
 
   const cover = (listing: HostListingState) =>
-    listing.content?.images?.[0] ??
-    listingById(listing.listingId)?.images[0] ??
-    '/pics/hotel-pool.webp'
+    listing.content?.images?.[0] ?? listingById(listing.listingId)?.images[0] ?? null
 
   const where = (listing: HostListingState) => {
     const seeded = listingById(listing.listingId)
@@ -695,11 +709,20 @@ export function HostDashboardPage() {
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_1fr]">
             <div className="space-y-4">
               <div className="card overflow-hidden sm:flex">
-                <img
-                  src={cover(active)}
-                  alt={active.listingName}
-                  className="h-40 w-full object-cover sm:h-auto sm:w-40 sm:shrink-0"
-                />
+                {cover(active) ? (
+                  <img
+                    src={cover(active)!}
+                    alt={active.listingName}
+                    className="h-40 w-full object-cover sm:h-auto sm:w-40 sm:shrink-0"
+                  />
+                ) : (
+                  <div className="flex h-40 w-full flex-col items-center justify-center gap-1.5 bg-mist text-ink/35 sm:h-auto sm:w-40 sm:shrink-0">
+                    <Icon name="sparkles" size={20} />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider">
+                      No photos yet
+                    </span>
+                  </div>
+                )}
                 <div className="flex flex-1 flex-col justify-center gap-1 p-5">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-display text-lg font-semibold text-ink">
@@ -708,10 +731,10 @@ export function HostDashboardPage() {
                     <span
                       className={cn(
                         'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
-                        listingStatus[active.status]?.tone ?? listingStatus.pending.tone,
+                        statusBadge(active).tone,
                       )}
                     >
-                      {listingStatus[active.status]?.label ?? active.status}
+                      {statusBadge(active).label}
                     </span>
                   </div>
                   <p className="text-sm text-ink/55">{where(active)}</p>
@@ -722,7 +745,7 @@ export function HostDashboardPage() {
                   </p>
                   {active.status !== 'live' && (
                     <p className="mt-2 text-xs leading-relaxed text-ink/45">
-                      {listingStatus[active.status]?.note}
+                      {statusNote(active)}
                     </p>
                   )}
                 </div>

@@ -553,6 +553,10 @@ export function AdminPage() {
                     </button>
                   )}
                 </div>
+                <p className="mt-3 text-xs leading-relaxed text-ink/40">
+                  Approving creates a host account and a draft listing from these details;
+                  the owner adds photos, then it comes back for review.
+                </p>
               </article>
             ))
           ))}

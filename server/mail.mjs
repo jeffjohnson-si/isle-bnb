@@ -173,21 +173,27 @@ export function claimEmails(claim) {
 }
 
 /**
- * Sent when the team verifies a claim: the owner sets a password and can then
- * publish rates, copy and rooms for their property.
+ * Sent when the team verifies a claim or approves an application: the owner sets
+ * a password and can then publish rates, copy and rooms for their property.
  */
-export function hostInviteEmails(host, claim) {
+export function hostInviteEmails(host, claim, { draft = false } = {}) {
   const link = `${SITE_URL.replace(/\/$/, '')}/#/host/activate?token=${host.invite_token}`
   const listingName = claim.listing_name ?? 'your property'
+
+  const intro = draft
+    ? `We have set up your Isle BnB account. ${listingName} is already in your dashboard with the details you sent us — add your photos and it goes to our team.`
+    : `We have verified that you look after ${listingName}, so the listing is now yours.`
 
   return [
     {
       to: host.email,
-      subject: `${listingName} is yours to manage on Isle BnB`,
-      text: `Hello ${host.name || 'there'}. We have verified that you look after ${listingName}, so the listing is now yours.\n\nSet your password here (the link is single use):\n${link}\n\nOnce you are in you can publish your nightly rate, update the description and see booking requests. Guests still pay you on arrival — Isle BnB takes no commission and no card details.`,
+      subject: draft
+        ? `Your Isle BnB account is ready — add photos to ${listingName}`
+        : `${listingName} is yours to manage on Isle BnB`,
+      text: `Hello ${host.name || 'there'}. ${intro}\n\nSet your password here (the link is single use):\n${link}\n\nOnce you are in you can publish your nightly rate, update the description and see booking requests. Guests still pay you on arrival — Isle BnB takes no commission and no card details.`,
       html: layout(
-        `<h1 style="font-size:20px;margin:0 0 12px">${listingName} is yours to manage</h1>
-         <p style="font-size:14px;line-height:1.6">Hello ${host.name || 'there'}. We have verified that you look after <strong>${listingName}</strong>, so the listing is now yours.</p>
+        `<h1 style="font-size:20px;margin:0 0 12px">${draft ? 'Your account is ready' : `${listingName} is yours to manage`}</h1>
+         <p style="font-size:14px;line-height:1.6">Hello ${host.name || 'there'}. ${intro}</p>
          <p style="margin:18px 0"><a href="${link}" style="background:#0b3f42;color:#faf6ef;padding:12px 20px;border-radius:999px;text-decoration:none;font-size:14px;font-weight:600">Set your password</a></p>
          <p style="font-size:13px;line-height:1.6;color:#07262a99">This link can be used once. You can then publish your rate, update the description and see booking requests. Guests pay you on arrival — no commission, no card details.</p>
          <p style="font-size:12px;color:#07262a66;word-break:break-all">${link}</p>`,
@@ -196,7 +202,7 @@ export function hostInviteEmails(host, claim) {
     OPS_INBOX && {
       to: OPS_INBOX,
       subject: `Host access granted — ${listingName} (${host.email})`,
-      text: `Host access granted for ${listingName}.\n\n${host.name ?? ''} <${host.email}>\nInvitation: ${link}`,
+      text: `Host access granted for ${listingName}.\n\n${host.name ?? ''} <${host.email}>\n${draft ? 'A draft listing was created from their application.' : ''}\nInvitation: ${link}`,
       html: layout(
         `<h1 style="font-size:20px;margin:0 0 12px">Host access granted</h1>
          <p style="font-size:14px;line-height:1.6"><strong>${listingName}</strong> is now managed by ${host.name ?? host.email} (${host.email}).</p>

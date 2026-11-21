@@ -391,8 +391,9 @@ function grantHostAccess(claim) {
 }
 
 /**
- * An approved applicant gets an account but no listing yet — their dashboard
- * opens on "Add a listing", where they add the details and photos themselves.
+ * Approving an applicant gives them an account *and* a draft listing built from
+ * what they already told us — so they never type the property twice. It has no
+ * photos, so it cannot go live; their dashboard asks for those first.
  */
 function grantApplicantAccess(application) {
   const existing = findHostByEmail(application.email)
@@ -403,7 +404,44 @@ function grantApplicantAccess(application) {
       name: application.contact_name,
       inviteToken: inviteToken(),
     })
-  return { host: getHost(host.id), created: !existing }
+  const account = getHost(host.id)
+
+  const alreadyListed = hostListings(account.id).some(
+    (row) => row.listing_name.toLowerCase() === application.property_name.toLowerCase(),
+  )
+  if (alreadyListed) return { host: account, created: !existing, draft: null }
+
+  const now = new Date().toISOString()
+  let listingId = `host-${slugify(application.property_name)}-${randomInt(1000, 9999)}`
+  while (getCreatedListing(listingId)) {
+    listingId = `host-${slugify(application.property_name)}-${randomInt(1000, 9999)}`
+  }
+
+  const draft = insertCreatedListing({
+    listing_id: listingId,
+    host_id: account.id,
+    name: application.property_name,
+    type: application.type,
+    country: application.country,
+    island: application.island,
+    area: application.area,
+    province: null,
+    currency: application.currency,
+    price: application.nightly_rate,
+    summary: '',
+    description: application.description,
+    guests: application.guests,
+    bedrooms: application.bedrooms,
+    beds: application.bedrooms,
+    baths: 1,
+    amenities: application.amenities,
+    images: '[]',
+    status: 'pending',
+    created_at: now,
+    updated_at: now,
+  })
+  linkHostListing(account.id, draft.listing_id, draft.name)
+  return { host: account, created: !existing, draft }
 }
 
 /* ── photos ────────────────────────────────────────────────────────────────
@@ -1225,9 +1263,11 @@ const server = createServer(async (request, response) => {
         hostAccount = granted.host
         if (granted.created && before?.status !== 'approved') {
           console.log(`host invite ${hostAccount.email} — ${inviteUrl(hostAccount.invite_token)}`)
-          for (const message of hostInviteEmails(hostAccount, {
-            listing_name: updated.property_name,
-          })) {
+          for (const message of hostInviteEmails(
+            hostAccount,
+            { listing_name: updated.property_name },
+            { draft: Boolean(granted.draft) },
+          )) {
             await sendMail(message)
           }
         }

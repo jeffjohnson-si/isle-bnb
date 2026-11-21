@@ -303,8 +303,8 @@ async function runChecks(browser) {
     throw new Error(`application ${hostReference} was not stored on the server`)
   }
 
-  // Approving an applicant must give them a dashboard even though they have no
-  // listing yet — they add it (with photos) themselves.
+  // Approving an applicant must give them a dashboard with a draft built from
+  // what they already told us, so they only have to add photos.
   const approval = await fetch(`${API}/api/admin/applications/${hostReference}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
@@ -318,13 +318,29 @@ async function runChecks(browser) {
   }).then((res) => res.json())
   const applicant = applicantHosts.hosts.find((row) => row.email === 'host@example.com')
   if (!applicant) throw new Error('approved applicant is missing from the host accounts list')
-  if (applicant.listings.length !== 0) {
-    throw new Error('an approved applicant should start with no listings')
+  if (applicant.listings.length !== 1) {
+    throw new Error(
+      `approved applicant has ${applicant.listings.length} listings, expected one draft`,
+    )
+  }
+  const applicantDrafts = await fetch(`${API}/api/admin/listings`, {
+    headers: { 'x-admin-token': ADMIN_TOKEN },
+  }).then((res) => res.json())
+  const draft = applicantDrafts.listings.find(
+    (row) => row.listingId === applicant.listings[0].listingId,
+  )
+  if (!draft) throw new Error('the applicant draft listing is missing')
+  if (draft.content.name !== 'Test Lagoon Lodge') {
+    throw new Error(`draft was built as "${draft.content.name}"`)
+  }
+  if ((draft.content.images ?? []).length !== 0) {
+    throw new Error('a draft should start without photos')
   }
   await fetch(`${API}/api/admin/hosts/${applicant.id}`, {
     method: 'DELETE',
     headers: { 'x-admin-token': ADMIN_TOKEN },
   })
+
 
 
   // ---- claim flow ----------------------------------------------------------

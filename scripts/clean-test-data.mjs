@@ -19,11 +19,19 @@ db.prepare(
   `DELETE FROM bookings WHERE guest_email IN ('test@example.com', 'api@test.com', 'ui@test.com', 'ui2@test.com')`,
 ).run()
 db.prepare(
-  `DELETE FROM applications WHERE email IN ('host@example.com', 'host-ui@test.com', 'applicant@example.com')`,
+  `DELETE FROM applications WHERE email IN ('host@example.com', 'host-ui@test.com', 'applicant@example.com', 'draftprobe@example.com')`,
 ).run()
 db.prepare(`DELETE FROM claims WHERE email = 'owner@example.com'`).run()
 db.prepare(
-  `DELETE FROM host_accounts WHERE email IN ('applicant@example.com', 'probe@example.com', 'probe2@example.com', 'dbg@example.com')`,
+  `DELETE FROM host_accounts WHERE email IN ('applicant@example.com', 'probe@example.com', 'probe2@example.com', 'dbg@example.com', 'draftprobe@example.com')`,
+).run()
+
+// Anything left behind by an account that no longer exists.
+db.prepare(
+  `DELETE FROM created_listings WHERE host_id NOT IN (SELECT id FROM host_accounts)`,
+).run()
+db.prepare(
+  `DELETE FROM host_listings WHERE host_id NOT IN (SELECT id FROM host_accounts)`,
 ).run()
 
 // Uploaded photos nothing points at any more.
