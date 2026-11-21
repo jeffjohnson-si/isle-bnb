@@ -7,25 +7,29 @@ import {
   fetchAdminBookings,
   fetchAdminClaims,
   fetchAdminHosts,
+  fetchAdminListings,
   reinviteHost,
   setApplicationStatus,
   setClaimStatus,
   setHostStatus,
+  setListingStatus,
   type AdminApplication,
   type AdminBooking,
   type AdminClaim,
   type AdminHost,
+  type AdminListing,
 } from '../lib/api'
 import { cn } from '../lib/utils'
 import { usePageTitle } from '../lib/usePageTitle'
 
 const TOKEN_KEY = 'islebnb.admintoken.v1'
 
-type Tab = 'applications' | 'claims' | 'hosts' | 'bookings'
+type Tab = 'applications' | 'claims' | 'listings' | 'hosts' | 'bookings'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'applications', label: 'Host applications' },
   { id: 'claims', label: 'Listing claims' },
+  { id: 'listings', label: 'Listing reviews' },
   { id: 'hosts', label: 'Host accounts' },
   { id: 'bookings', label: 'Bookings' },
 ]
@@ -43,7 +47,7 @@ const when = (iso: string) => {
 }
 
 const statusStyle = (status: string) =>
-  status === 'verified' || status === 'approved'
+  status === 'verified' || status === 'approved' || status === 'live'
     ? 'bg-palm/10 text-palm'
     : status === 'rejected' || status === 'cancelled'
       ? 'bg-coral/10 text-coral'
@@ -66,6 +70,8 @@ function Empty({ tab }: { tab: Tab }) {
   const copy: Record<Tab, string> = {
     applications: 'No host applications yet. They arrive from the “List your place” form.',
     claims: 'No listing claims yet. They arrive from the “Claim this listing” link.',
+    listings:
+      'No listings waiting. Owners submit them from their host dashboard and they appear here for review.',
     hosts:
       'No host accounts yet. Verifying a claim creates one and emails the owner an invitation.',
     bookings: 'No booking requests yet. They arrive from a listing page.',
@@ -121,6 +127,7 @@ export function AdminPage() {
   const [applications, setApplications] = useState<AdminApplication[]>([])
   const [claims, setClaims] = useState<AdminClaim[]>([])
   const [hosts, setHosts] = useState<AdminHost[]>([])
+  const [createdListings, setCreatedListings] = useState<AdminListing[]>([])
   const [bookings, setBookings] = useState<AdminBooking[]>([])
   const [invite, setInvite] = useState<{ email: string; url: string } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -131,15 +138,17 @@ export function AdminPage() {
     setLoading(true)
     setError('')
     try {
-      const [apps, claimRows, hostRows, bookingRows] = await Promise.all([
+      const [apps, claimRows, hostRows, listingRows, bookingRows] = await Promise.all([
         fetchAdminApplications(activeToken),
         fetchAdminClaims(activeToken),
         fetchAdminHosts(activeToken),
+        fetchAdminListings(activeToken),
         fetchAdminBookings(activeToken),
       ])
       setApplications(apps)
       setClaims(claimRows)
       setHosts(hostRows)
+      setCreatedListings(listingRows)
       setBookings(bookingRows)
     } catch (error) {
       if (error instanceof ApiError && /unauthoris/i.test(error.message)) {
@@ -257,6 +266,23 @@ export function AdminPage() {
     }
   }
 
+  const reviewListing = async (
+    listingId: string,
+    status: 'pending' | 'live' | 'rejected',
+  ) => {
+    const key = `listing-${listingId}`
+    setBusy(key)
+    setError('')
+    try {
+      await setListingStatus(token, listingId, status)
+      setCreatedListings(await fetchAdminListings(token))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not update the listing.')
+    } finally {
+      setBusy('')
+    }
+  }
+
   if (!token) {
     return (
       <div className="section max-w-lg pt-16">
@@ -306,6 +332,7 @@ export function AdminPage() {
   const counts: Record<Tab, number> = {
     applications: applications.filter((row) => row.status === 'pending').length,
     claims: claims.filter((row) => row.status === 'pending').length,
+    listings: createdListings.filter((row) => row.status === 'pending').length,
     hosts: hosts.filter((row) => row.status === 'invited').length,
     bookings: bookings.filter((row) => row.status === 'pending').length,
   }
@@ -321,8 +348,10 @@ export function AdminPage() {
             Operations dashboard
           </h1>
           <p className="mt-1 text-sm text-ink/55">
-            {applications.length} applications · {claims.length} claims · {hosts.length} host
-            account{hosts.length === 1 ? '' : 's'} · {bookings.length} bookings
+            {applications.length} applications · {claims.length} claims ·{' '}
+            {createdListings.length} host listing
+            {createdListings.length === 1 ? '' : 's'} · {hosts.length} host account
+            {hosts.length === 1 ? '' : 's'} · {bookings.length} bookings
           </p>
         </div>
         <div className="flex gap-2">
@@ -621,6 +650,137 @@ export function AdminPage() {
                   Only verify after speaking to the property on a number you found
                   independently.
                 </p>
+              </article>
+            ))
+          ))}
+
+        {tab === 'listings' &&
+          (createdListings.length === 0 ? (
+            <Empty tab="listings" />
+          ) : (
+            createdListings.map((row) => (
+              <article
+                key={row.listingId}
+                data-listing-id={row.listingId}
+                data-status={row.status}
+                className="card p-5 sm:p-6"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-display text-xl font-semibold text-ink">
+                        {row.content.name}
+                      </h2>
+                      <StatusPill status={row.status} />
+                    </div>
+                    <p className="mt-1 text-sm text-ink/55">
+                      {row.content.type} · {row.content.area}, {row.content.island}
+                      {row.content.province ? `, ${row.content.province}` : ''}
+                    </p>
+                    <p className="mt-1 text-xs text-ink/45">
+                      Submitted by {row.hostName || row.hostEmail} · {row.hostEmail}
+                    </p>
+                  </div>
+                  <p className="text-xs text-ink/40">{when(row.createdAt)}</p>
+                </div>
+
+                {row.content.images?.length ? (
+                  <div className="mt-4 flex gap-2 overflow-x-auto">
+                    {row.content.images.slice(0, 4).map((image) => (
+                      <img
+                        key={image}
+                        src={image}
+                        alt=""
+                        className="h-20 w-28 shrink-0 rounded-lg object-cover"
+                        loading="lazy"
+                      />
+                    ))}
+                    {row.content.images.length > 4 && (
+                      <span className="grid h-20 w-16 shrink-0 place-items-center rounded-lg bg-sand text-xs font-semibold text-ink/50">
+                        +{row.content.images.length - 4}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-xl bg-coral/5 px-3 py-2 text-xs font-semibold text-coral">
+                    No photos on this listing
+                  </p>
+                )}
+
+                <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  <div className="flex justify-between gap-2 border-b border-ink/5 pb-1.5">
+                    <dt className="text-ink/50">Rate</dt>
+                    <dd className="font-semibold text-ink">
+                      {row.content.price
+                        ? `${row.content.currency} ${row.content.price.toLocaleString()} / night`
+                        : 'Rate on request'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2 border-b border-ink/5 pb-1.5">
+                    <dt className="text-ink/50">Sleeps</dt>
+                    <dd className="font-semibold text-ink">
+                      {row.content.guests} guests · {row.content.bedrooms} bedroom
+                      {row.content.bedrooms === 1 ? '' : 's'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2 border-b border-ink/5 pb-1.5">
+                    <dt className="text-ink/50">Listing id</dt>
+                    <dd className="font-mono text-xs font-semibold text-ink">
+                      {row.listingId}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2 border-b border-ink/5 pb-1.5">
+                    <dt className="text-ink/50">Photos</dt>
+                    <dd className="font-semibold text-ink">
+                      {row.content.images?.length ?? 0}
+                    </dd>
+                  </div>
+                </dl>
+
+                <p className="mt-3 text-sm leading-relaxed text-ink/65">
+                  {row.content.description}
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {row.status !== 'live' && (
+                    <button
+                      type="button"
+                      onClick={() => void reviewListing(row.listingId, 'live')}
+                      disabled={busy === `listing-${row.listingId}`}
+                      className="rounded-full bg-palm px-4 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:cursor-wait"
+                    >
+                      Approve and publish
+                    </button>
+                  )}
+                  {row.status === 'live' && (
+                    <Link
+                      to={`/stays/${row.listingId}`}
+                      className="rounded-full border border-ink/15 px-4 py-2 text-xs font-bold text-ink/60 transition hover:border-ink/35"
+                    >
+                      View public page
+                    </Link>
+                  )}
+                  {row.status !== 'rejected' && (
+                    <button
+                      type="button"
+                      onClick={() => void reviewListing(row.listingId, 'rejected')}
+                      disabled={busy === `listing-${row.listingId}`}
+                      className="rounded-full border border-coral/40 px-4 py-2 text-xs font-bold text-coral transition hover:bg-coral/10 disabled:cursor-wait"
+                    >
+                      Reject
+                    </button>
+                  )}
+                  {row.status !== 'pending' && (
+                    <button
+                      type="button"
+                      onClick={() => void reviewListing(row.listingId, 'pending')}
+                      disabled={busy === `listing-${row.listingId}`}
+                      className="rounded-full border border-ink/15 px-4 py-2 text-xs font-bold text-ink/60 transition hover:border-ink/35 disabled:cursor-wait"
+                    >
+                      Back to pending
+                    </button>
+                  )}
+                </div>
               </article>
             ))
           ))}

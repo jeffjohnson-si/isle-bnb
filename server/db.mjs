@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const dataDir = process.env.DATA_DIR ?? path.join(here, '..', 'data')
+export const dataDir = process.env.DATA_DIR ?? path.join(here, '..', 'data')
 mkdirSync(dataDir, { recursive: true })
 
 export const db = new DatabaseSync(path.join(dataDir, 'islebnb.db'))
@@ -107,13 +107,55 @@ db.exec(`
     updated_by     TEXT
   );
 
+  /* Listings a verified owner created themselves. They stay out of the public
+     catalogue until the team approves them. */
+  CREATE TABLE IF NOT EXISTS created_listings (
+    listing_id     TEXT PRIMARY KEY,
+    host_id        INTEGER NOT NULL,
+    name           TEXT NOT NULL,
+    type           TEXT NOT NULL,
+    country        TEXT NOT NULL,
+    island         TEXT NOT NULL,
+    area           TEXT NOT NULL,
+    province       TEXT,
+    currency       TEXT NOT NULL,
+    price          INTEGER NOT NULL,
+    summary        TEXT NOT NULL,
+    description    TEXT NOT NULL,
+    guests         INTEGER NOT NULL,
+    bedrooms       INTEGER NOT NULL,
+    beds           INTEGER NOT NULL,
+    baths          INTEGER NOT NULL,
+    amenities      TEXT NOT NULL,
+    images         TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'pending',
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS bookings_created ON bookings (created_at DESC);
   CREATE INDEX IF NOT EXISTS applications_created ON applications (created_at DESC);
   CREATE INDEX IF NOT EXISTS claims_created ON claims (created_at DESC);
   CREATE INDEX IF NOT EXISTS claims_listing ON claims (listing_id);
   CREATE INDEX IF NOT EXISTS host_sessions_host ON host_sessions (host_id);
   CREATE INDEX IF NOT EXISTS host_listings_listing ON host_listings (listing_id);
+  CREATE INDEX IF NOT EXISTS created_listings_status ON created_listings (status, created_at DESC);
 `)
+
+/* Columns added to listing_overrides after the first release. SQLite has no
+   "ADD COLUMN IF NOT EXISTS", so check the table first. */
+for (const [column, type] of [
+  ['name', 'TEXT'],
+  ['island', 'TEXT'],
+  ['area', 'TEXT'],
+  ['province', 'TEXT'],
+  ['images', 'TEXT'],
+]) {
+  const columns = db.prepare('PRAGMA table_info(listing_overrides)').all()
+  if (!columns.some((row) => row.name === column)) {
+    db.exec(`ALTER TABLE listing_overrides ADD COLUMN ${column} ${type}`)
+  }
+}
 
 const bookingColumns = [
   'reference', 'listing_id', 'listing_name', 'country', 'island', 'region',
@@ -312,6 +354,7 @@ export function deleteHost(id) {
   if (!host) return null
   db.prepare('DELETE FROM host_sessions WHERE host_id = ?').run(id)
   db.prepare('DELETE FROM host_listings WHERE host_id = ?').run(id)
+  db.prepare('DELETE FROM created_listings WHERE host_id = ?').run(id)
   db.prepare('DELETE FROM listing_overrides WHERE updated_by = ?').run(host.email)
   db.prepare('DELETE FROM host_accounts WHERE id = ?').run(id)
   return host
@@ -364,8 +407,8 @@ export function upsertOverride(record) {
   db.prepare(
     `INSERT INTO listing_overrides
        (listing_id, price, summary, description, guests, bedrooms, beds, baths,
-        amenities, updated_at, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        amenities, name, island, area, province, images, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (listing_id) DO UPDATE SET
        price = excluded.price,
        summary = excluded.summary,
@@ -375,6 +418,11 @@ export function upsertOverride(record) {
        beds = excluded.beds,
        baths = excluded.baths,
        amenities = excluded.amenities,
+       name = excluded.name,
+       island = excluded.island,
+       area = excluded.area,
+       province = excluded.province,
+       images = excluded.images,
        updated_at = excluded.updated_at,
        updated_by = excluded.updated_by`,
   ).run(
@@ -387,10 +435,100 @@ export function upsertOverride(record) {
     record.beds,
     record.baths,
     record.amenities,
+    record.name,
+    record.island,
+    record.area,
+    record.province,
+    record.images,
     record.updated_at,
     record.updated_by,
   )
   return getOverride(record.listing_id)
+}
+
+/* ── listings owners created themselves ─────────────────────────────────── */
+
+const createdColumns = [
+  'listing_id', 'host_id', 'name', 'type', 'country', 'island', 'area', 'province',
+  'currency', 'price', 'summary', 'description', 'guests', 'bedrooms', 'beds', 'baths',
+  'amenities', 'images', 'status', 'created_at', 'updated_at',
+]
+
+export function insertCreatedListing(record) {
+  const placeholders = createdColumns.map(() => '?').join(', ')
+  db.prepare(
+    `INSERT INTO created_listings (${createdColumns.join(', ')})
+     VALUES (${placeholders})`,
+  ).run(...createdColumns.map((column) => record[column]))
+  return getCreatedListing(record.listing_id)
+}
+
+export function getCreatedListing(listingId) {
+  return db
+    .prepare(
+      `SELECT c.*, h.name AS host_name, h.email AS host_email
+       FROM created_listings c JOIN host_accounts h ON h.id = c.host_id
+       WHERE c.listing_id = ?`,
+    )
+    .get(listingId)
+}
+
+export function listCreatedListings({ status } = {}) {
+  const where = status ? 'WHERE c.status = ?' : ''
+  const statement = db.prepare(
+    `SELECT c.*, h.name AS host_name, h.email AS host_email
+     FROM created_listings c JOIN host_accounts h ON h.id = c.host_id
+     ${where}
+     ORDER BY c.created_at DESC LIMIT 200`,
+  )
+  return status ? statement.all(status) : statement.all()
+}
+
+export function createdListingsForHost(hostId) {
+  return db
+    .prepare(
+      `SELECT * FROM created_listings WHERE host_id = ? ORDER BY created_at DESC`,
+    )
+    .all(hostId)
+}
+
+export function updateCreatedListing(listingId, record) {
+  db.prepare(
+    `UPDATE created_listings SET
+       name = ?, island = ?, area = ?, province = ?, price = ?, summary = ?,
+       description = ?, guests = ?, bedrooms = ?, beds = ?, baths = ?,
+       amenities = ?, images = ?, updated_at = ?
+     WHERE listing_id = ?`,
+  ).run(
+    record.name,
+    record.island,
+    record.area,
+    record.province,
+    record.price,
+    record.summary,
+    record.description,
+    record.guests,
+    record.bedrooms,
+    record.beds,
+    record.baths,
+    record.amenities,
+    record.images,
+    record.updated_at,
+    listingId,
+  )
+  return getCreatedListing(listingId)
+}
+
+export function setCreatedListingStatus(listingId, status) {
+  db.prepare('UPDATE created_listings SET status = ? WHERE listing_id = ?').run(
+    status,
+    listingId,
+  )
+  return getCreatedListing(listingId)
+}
+
+export function deleteCreatedListing(listingId) {
+  db.prepare('DELETE FROM created_listings WHERE listing_id = ?').run(listingId)
 }
 
 export function bookingsForListings(listingIds) {

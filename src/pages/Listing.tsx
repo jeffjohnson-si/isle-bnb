@@ -5,8 +5,8 @@ import { BookingCard } from '../components/BookingCard'
 import { ListingCard } from '../components/ListingCard'
 import { NotFoundPage } from './NotFound'
 import { countryByCode } from '../data/countries'
-import { applyListingOverrides, listingById, listings } from '../data/listings'
-import { fetchListingOverrides, fetchVerifiedClaims } from '../lib/api'
+import { applyHostListings, applyListingOverrides, listingById, listings } from '../data/listings'
+import { fetchCreatedListings, fetchListingOverrides, fetchVerifiedClaims } from '../lib/api'
 import { approxUsd, formatMoney } from '../lib/money'
 import { isSaved, toggleSaved } from '../lib/storage'
 import { listingLocation, listingLocality } from '../lib/location'
@@ -31,6 +31,7 @@ export function ListingPage() {
   const [copied, setCopied] = useState(false)
   const [managedByOwner, setManagedByOwner] = useState(false)
   const [, refresh] = useState(0)
+  const [remoteChecked, setRemoteChecked] = useState(false)
 
   useEffect(() => {
     const current = listing
@@ -45,17 +46,26 @@ export function ListingPage() {
   }, [listing?.id])
 
   /**
-   * A host may have published a rate since the app started. Re-read the owner's
-   * edits when this page opens so the price shown is never older than the visit.
+   * A host may have published a rate, swapped a photo, or created this listing
+   * since the app started. Re-read owner content when the page opens so what is
+   * shown is never older than the visit.
    */
   useEffect(() => {
     let active = true
-    void fetchListingOverrides()
-      .then((overrides) => {
+    void Promise.allSettled([fetchListingOverrides(), fetchCreatedListings()]).then(
+      ([overrides, created]) => {
         if (!active) return
-        if (applyListingOverrides(overrides) > 0) refresh((count) => count + 1)
-      })
-      .catch(() => {})
+        let changed = false
+        if (overrides.status === 'fulfilled') {
+          changed = applyListingOverrides(overrides.value) > 0
+        }
+        if (created.status === 'fulfilled') {
+          changed = applyHostListings(created.value) > 0 || changed
+        }
+        setRemoteChecked(true)
+        if (changed) refresh((count) => count + 1)
+      },
+    )
     return () => {
       active = false
     }
@@ -63,9 +73,16 @@ export function ListingPage() {
 
   usePageTitle(listing ? `${listing.name} · Isle BnB` : 'Stay not found · Isle BnB')
 
+  if (!listing && !remoteChecked) {
+    return (
+      <div className="section py-24 text-center text-sm text-ink/50">Loading stay…</div>
+    )
+  }
+
   if (!listing) return <NotFoundPage />
 
   const country = countryByCode(listing.country)
+  const managed = managedByOwner || Boolean(listing.managedByHost)
   const related = listings
     .filter((l) => l.id !== listing.id && l.country === listing.country)
     .concat(listings.filter((l) => l.id !== listing.id && l.type === listing.type))
@@ -105,7 +122,7 @@ export function ListingPage() {
             {listing.freeCancellation && (
               <span className="chip bg-palm/10 text-palm">Free cancellation</span>
             )}
-            {managedByOwner && (
+            {managed && (
               <span className="chip bg-palm/10 text-palm">
                 <Icon name="shield" size={13} />
                 Managed by the owner
@@ -170,16 +187,19 @@ export function ListingPage() {
               className="aspect-[4/3] h-full w-full object-cover sm:aspect-auto"
             />
           </div>
-          {[...listing.images.slice(1), ...listing.images].slice(0, 4).map((image, index) => (
-            <div key={`${image}-${index}`} className="hidden sm:block">
-              <img
-                src={image}
-                alt={`${listing.name} photo ${index + 2}`}
-                loading="lazy"
-                className="h-full w-full object-cover"
-              />
-            </div>
-          ))}
+          {listing.images.length > 1 &&
+            [...listing.images.slice(1), ...listing.images]
+              .slice(0, 4)
+              .map((image, index) => (
+                <div key={`${image}-${index}`} className="hidden sm:block">
+                  <img
+                    src={image}
+                    alt={`${listing.name} photo ${index + 2}`}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              ))}
         </div>
       </div>
 
@@ -213,7 +233,7 @@ export function ListingPage() {
             </p>
           </div>
 
-          {managedByOwner ? (
+          {managed ? (
             <p className="mt-5 flex items-start gap-2.5 rounded-2xl border border-palm/20 bg-palm/5 px-4 py-3 text-sm leading-relaxed text-palm">
               <Icon name="shield" size={17} className="mt-0.5 shrink-0" />
               The property manages this listing. Rates, rooms and photos come straight

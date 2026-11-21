@@ -51,6 +51,8 @@ export interface Listing {
   transfer?: string
   freeCancellation?: boolean
   badge?: string
+  /** True when the owner created this listing through their dashboard. */
+  managedByHost?: boolean
 }
 
 export interface Experience {

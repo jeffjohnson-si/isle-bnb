@@ -469,6 +469,102 @@ async function runChecks(browser) {
         await shot(desktop, 'd-bookings-confirmed.png')
       }
 
+      // ---- owner creates their own listing ---------------------------------
+      step('new listing')
+      await desktop.goto(`${BASE}/#/host/new`, { waitUntil: 'networkidle2' })
+      await desktop.waitForSelector('text/Tell travellers about your place', {
+        timeout: 4000,
+      })
+
+      const listingName = 'Check Lagoon Bungalows'
+      await setValue(desktop, '#newName', listingName)
+      await setValue(desktop, '#newIsland', 'New Georgia')
+      await setValue(desktop, '#newArea', 'Munda')
+      await setValue(desktop, '#newPrice', '390')
+      await setValue(desktop, '#newSummary', 'Two bungalows on the lagoon')
+      await setValue(
+        desktop,
+        '#newDescription',
+        'Two bungalows on the lagoon with a shared deck, breakfast included and a boat transfer from Munda town.',
+      )
+      await setSelect(desktop, '#newCountry', 'SB')
+
+      const photoInput = await desktop.$('input[type="file"]')
+      if (!photoInput) throw new Error('photo input missing on the new listing form')
+      await photoInput.uploadFile(
+        path.resolve('public/pics/hero-pavilion.webp'),
+      )
+      await desktop.waitForFunction(
+        () => {
+          const img = document.querySelector('img[alt="Listing photo 1"]')
+          return Boolean(img?.getAttribute('src')?.startsWith('/api/uploads/'))
+        },
+        { timeout: 20000 },
+      )
+      await shot(desktop, 'd-host-new.png')
+
+      await desktop.click('form button[type="submit"]')
+      await desktop.waitForSelector('text/is with our team', { timeout: 10000 })
+      await shot(desktop, 'd-host-new-submitted.png')
+
+      const submitted = await fetch(`${API}/api/listings/created`).then((res) => res.json())
+      if (submitted.listings.some((row) => row.name === listingName)) {
+        throw new Error('an unapproved listing was published to the catalogue')
+      }
+
+      // The team reviews it before it appears anywhere public.
+      await desktop.goto(`${BASE}/#/admin`, { waitUntil: 'networkidle2' })
+      await desktop.waitForSelector('text/Operations dashboard', { timeout: 6000 })
+      await desktop.evaluate(() => {
+        const tab = [...document.querySelectorAll('button')].find((button) =>
+          button.textContent?.startsWith('Listing reviews'),
+        )
+        if (!tab) throw new Error('listing reviews tab missing')
+        tab.click()
+      })
+      await desktop.waitForSelector(`text/${listingName}`, { timeout: 5000 })
+      await shot(desktop, 'd-admin-listings.png')
+
+      await desktop.evaluate((name) => {
+        const card = [...document.querySelectorAll('article')].find((el) =>
+          el.textContent?.includes(name),
+        )
+        if (!card) throw new Error(`review card for ${name} missing`)
+        const button = [...card.querySelectorAll('button')].find(
+          (el) => el.textContent?.trim() === 'Approve and publish',
+        )
+        if (!button) throw new Error('approve button missing')
+        button.click()
+      }, listingName)
+      await desktop.waitForFunction(
+        (name) =>
+          [...document.querySelectorAll('article[data-status="live"]')].some((el) =>
+            el.textContent?.includes(name),
+          ),
+        { timeout: 8000 },
+        listingName,
+      )
+
+      const published = await fetch(`${API}/api/listings/created`).then((res) => res.json())
+      const publishedRow = published.listings.find((row) => row.name === listingName)
+      if (!publishedRow) throw new Error('approved listing is missing from the catalogue')
+
+      // It must be findable and openable as a normal stay on a fresh visit.
+      await desktop.goto(`${BASE}/#/stays`, { waitUntil: 'networkidle2' })
+      await desktop.reload({ waitUntil: 'networkidle2' })
+      await desktop.waitForFunction(
+        (name) => document.body.innerText.includes(name),
+        { timeout: 6000 },
+        listingName,
+      )
+
+      await desktop.goto(`${BASE}/#/stays/${publishedRow.id}`, {
+        waitUntil: 'networkidle2',
+      })
+      await desktop.waitForSelector('text/Check Lagoon Bungalows', { timeout: 6000 })
+      await desktop.waitForSelector('text/SBD 390', { timeout: 6000 })
+      await shot(desktop, 'd-listing-host-created.png')
+
       // Sign the test host out before the account is deleted, so the mobile pass
       // does not fire a dashboard request with a dead token.
       await desktop.evaluate(() => window.localStorage.removeItem('islebnb.hosttoken.v1'))
@@ -493,6 +589,10 @@ async function runChecks(browser) {
     const published = await fetch(`${API}/api/listings/overrides`).then((res) => res.json())
     if (published.overrides.some((row) => row.listingId === claimedListingId)) {
       throw new Error('the test rate was left published on a real listing')
+    }
+    const afterCleanup = await fetch(`${API}/api/listings/created`).then((res) => res.json())
+    if (afterCleanup.listings.some((row) => row.name === 'Check Lagoon Bungalows')) {
+      throw new Error('the approved test listing was not removed with its account')
     }
   } else {
     console.log('  no stays in the catalogue — skipping the claim and admin checks')

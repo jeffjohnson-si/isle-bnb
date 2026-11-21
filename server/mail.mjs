@@ -205,3 +205,45 @@ export function hostInviteEmails(host, claim) {
     },
   ].filter(Boolean)
 }
+
+/** Sent when an owner submits a listing they created themselves. */
+export function listingSubmittedEmails(listing, host) {
+  const detail = `${listing.name} — ${listing.area}, ${listing.island} (${listing.currency} ${listing.price || 'rate on request'})`
+
+  return [
+    {
+      to: host.email,
+      subject: `We have your listing — ${listing.name}`,
+      text: `Thanks ${host.name ?? ''}. ${detail} is with our team for review.\n\nWe check that the photos and details match the property, usually within two business days. You can keep editing it in your dashboard while it is in review.`,
+      html: layout(
+        `<h1 style="font-size:20px;margin:0 0 12px">Listing received</h1>
+         <p style="font-size:14px;line-height:1.6">Thanks ${host.name ?? ''}. <strong>${listing.name}</strong> is with our team for review — usually within two business days. You can keep editing it in your dashboard while it is in review.</p>
+         <table style="border-collapse:collapse">${row('Where', `${listing.area}, ${listing.island}`)}${row('Rate', `${listing.currency} ${listing.price || 'on request'}`)}${row('Photos', `${JSON.parse(listing.images).length}`)}</table>`,
+      ),
+    },
+    OPS_INBOX && {
+      to: OPS_INBOX,
+      subject: `Listing to review — ${listing.name} (${host.email})`,
+      text: `New host listing.\n\n${detail}\nPhotos: ${listing.images}\nSubmitted by ${host.name ?? ''} <${host.email}>\n\nReview it in the team dashboard.`,
+      html: layout(
+        `<h1 style="font-size:20px;margin:0 0 12px">Listing to review</h1>
+         <p style="font-size:14px;line-height:1.6"><strong>${listing.name}</strong> — ${listing.area}, ${listing.island}<br/>${listing.currency} ${listing.price || 'rate on request'} · submitted by ${host.name ?? ''} (${host.email})</p>`,
+      ),
+    },
+  ].filter(Boolean)
+}
+
+/** Sent when the team approves a listing the owner created. */
+export function listingLiveEmails(listing, host) {
+  return [
+    {
+      to: host.email,
+      subject: `${listing.name} is live on Isle BnB`,
+      text: `Good news — ${listing.name} is now live and guests can request it. You can update rates, photos and text in your dashboard at any time. Guests pay you on arrival; Isle BnB takes no commission.`,
+      html: layout(
+        `<h1 style="font-size:20px;margin:0 0 12px">${listing.name} is live</h1>
+         <p style="font-size:14px;line-height:1.6">Guests can now find and request it. You can change rates, photos and text in your dashboard at any time.</p>`,
+      ),
+    },
+  ].filter(Boolean)
+}

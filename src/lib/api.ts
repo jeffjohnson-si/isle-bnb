@@ -1,4 +1,4 @@
-import type { Booking } from '../types'
+import type { Booking, Listing } from '../types'
 import type { ListingOverride } from '../data/listings'
 
 const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
@@ -306,6 +306,12 @@ export async function fetchListingOverrides() {
   return data.overrides
 }
 
+/** Listings owners created themselves, already approved for the catalogue. */
+export async function fetchCreatedListings() {
+  const data = await request<{ listings: Listing[] }>('/api/listings/created')
+  return data.listings
+}
+
 /* ── host accounts ──────────────────────────────────────────────────────── */
 
 export interface HostIdentity {
@@ -315,11 +321,35 @@ export interface HostIdentity {
   status: 'invited' | 'active' | 'suspended'
 }
 
+/** The editable half of a listing — everything an owner controls. */
+export interface ListingContent {
+  name?: string | null
+  type?: string
+  country?: string
+  island?: string | null
+  area?: string | null
+  province?: string | null
+  currency?: string
+  price?: number | null
+  summary?: string | null
+  description?: string | null
+  guests?: number | null
+  bedrooms?: number | null
+  beds?: number | null
+  baths?: number | null
+  amenities?: string[] | null
+  images?: string[] | null
+  updatedAt?: string
+}
+
 export interface HostListingState {
   listingId: string
   listingName: string
   grantedAt: string
-  override: ListingOverride | null
+  /** `seed` listings were imported by the team; `host` ones the owner created. */
+  origin: 'seed' | 'host'
+  status: 'live' | 'pending' | 'rejected'
+  content: ListingContent | null
   bookings: AdminBooking[]
 }
 
@@ -352,7 +382,35 @@ export async function fetchHostOverview(token: string) {
   return request<HostOverview>('/api/host/dashboard', { headers: asHost(token) })
 }
 
-export interface ListingOverrideInput {
+/** Uploads one already-compressed image; returns the URL to store on the listing. */
+export async function uploadPhoto(token: string, blob: Blob) {
+  let response: Response
+  try {
+    response = await fetch(apiUrl('/api/host/uploads'), {
+      method: 'POST',
+      headers: {
+        'x-host-token': token,
+        'content-type': blob.type || 'application/octet-stream',
+      },
+      body: blob,
+    })
+  } catch {
+    throw new ApiError('Could not upload that photo. Check your connection and try again.')
+  }
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
+  if (!response.ok) {
+    throw new ApiError(
+      typeof payload.error === 'string' ? payload.error : 'Could not upload that photo.',
+    )
+  }
+  return payload as unknown as { url: string; bytes: number }
+}
+
+export interface ListingContentInput {
+  name: string
+  island: string
+  area: string
+  province: string
   price: number
   summary: string
   description: string
@@ -361,18 +419,33 @@ export interface ListingOverrideInput {
   beds: number
   baths: number
   amenities: string[]
+  images: string[]
 }
 
-export async function saveListingOverride(
+export async function saveListingContent(
   token: string,
   listingId: string,
-  input: ListingOverrideInput,
+  input: ListingContentInput,
 ) {
-  const data = await request<{ override: ListingOverride }>(
+  const data = await request<{ content: ListingContent }>(
     `/api/host/listings/${encodeURIComponent(listingId)}`,
     { method: 'PATCH', headers: asHost(token), body: JSON.stringify(input) },
   )
-  return data.override
+  return data.content
+}
+
+export async function createHostListing(
+  token: string,
+  input: ListingContentInput & { type: string; country: string; currency: string },
+) {
+  return request<{
+    listing: { listingId: string; name: string; status: string }
+    content: ListingContent
+  }>('/api/host/listings', {
+    method: 'POST',
+    headers: asHost(token),
+    body: JSON.stringify(input),
+  })
 }
 
 export async function setHostBookingStatus(
@@ -385,6 +458,36 @@ export async function setHostBookingStatus(
     { method: 'PATCH', headers: asHost(token), body: JSON.stringify({ status }) },
   )
   return data.booking
+}
+
+/* ── admin: listings waiting for review ─────────────────────────────────── */
+
+export interface AdminListing {
+  listingId: string
+  status: 'pending' | 'live' | 'rejected'
+  hostEmail: string
+  hostName: string | null
+  createdAt: string
+  content: ListingContent
+}
+
+export async function fetchAdminListings(token: string) {
+  const data = await request<{ listings: AdminListing[] }>('/api/admin/listings', {
+    headers: admin(token),
+  })
+  return data.listings
+}
+
+export async function setListingStatus(
+  token: string,
+  listingId: string,
+  status: 'pending' | 'live' | 'rejected',
+) {
+  const data = await request<{ listing: { listingId: string; status: string } }>(
+    `/api/admin/listings/${encodeURIComponent(listingId)}`,
+    { method: 'PATCH', headers: admin(token), body: JSON.stringify({ status }) },
+  )
+  return data.listing
 }
 
 /* ── admin: host accounts ───────────────────────────────────────────────── */

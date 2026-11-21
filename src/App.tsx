@@ -26,6 +26,7 @@ import { ClaimPage } from './pages/Claim'
 import { AdminPage } from './pages/Admin'
 import { HostActivatePage, HostLoginPage } from './pages/HostAuth'
 import { HostDashboardPage } from './pages/HostDashboard'
+import { HostNewListingPage } from './pages/HostNewListing'
 import { NotFoundPage } from './pages/NotFound'
 
 /** /islands/:code was the old URL — keep it working. */
@@ -98,6 +99,7 @@ export default function App() {
             <Route path="/list-your-place" element={<ListPropertyPage />} />
             <Route path="/claim/:id" element={<ClaimPage />} />
             <Route path="/host" element={<HostDashboardPage />} />
+            <Route path="/host/new" element={<HostNewListingPage />} />
             <Route path="/host/login" element={<HostLoginPage />} />
             <Route path="/host/activate" element={<HostActivatePage />} />
             <Route path="/admin" element={<AdminPage />} />

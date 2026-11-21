@@ -2745,6 +2745,10 @@ export const stayTypes: StayType[] = [
  */
 export interface ListingOverride {
   listingId: string
+  name?: string | null
+  island?: string | null
+  area?: string | null
+  province?: string | null
   price: number | null
   summary: string | null
   description: string | null
@@ -2753,6 +2757,7 @@ export interface ListingOverride {
   beds: number | null
   baths: number | null
   amenities: string[] | null
+  images?: string[] | null
   updatedAt?: string
 }
 
@@ -2770,6 +2775,10 @@ export function applyListingOverrides(overrides: ListingOverride[]) {
     const override = byId.get(listing.id)
     if (!override) continue
 
+    if (override.name) listing.name = override.name
+    if (override.island) listing.island = override.island
+    if (override.area) listing.area = override.area
+    if (override.province !== undefined) listing.province = override.province ?? undefined
     if (override.price !== null) listing.price = override.price
     if (override.summary) listing.summary = override.summary
     if (override.description) listing.description = override.description
@@ -2778,9 +2787,28 @@ export function applyListingOverrides(overrides: ListingOverride[]) {
     if (override.beds !== null) listing.beds = override.beds
     if (override.baths !== null) listing.baths = override.baths
     if (override.amenities?.length) listing.amenities = override.amenities
+    if (override.images?.length) listing.images = override.images
 
     applied += 1
   }
 
   return applied
+}
+
+/**
+ * Adds listings owners created through their dashboard (already approved) to
+ * the catalogue. Idempotent, because the listing page re-reads them on open.
+ */
+export function applyHostListings(records: Listing[]) {
+  let added = 0
+  for (const record of records) {
+    const index = listings.findIndex((listing) => listing.id === record.id)
+    if (index === -1) {
+      listings.push(record)
+      added += 1
+    } else {
+      listings[index] = { ...listings[index], ...record }
+    }
+  }
+  return added
 }

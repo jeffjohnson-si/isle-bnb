@@ -43,7 +43,9 @@ Each area is its own page — the landing screen is the hero and search only.
 - `/claim/:id` — a property owner claims a listing we built from public information
 - `/host/login` · `/host/activate` · `/host` — host sign-in, password setup, and the
   owner's own dashboard for their listings and booking requests
-- `/admin` — team dashboard for applications, claims, hosts and bookings (token-gated)
+- `/host/new` — a signed-in owner adds a property, with photo uploads, for team review
+- `/admin` — team dashboard for applications, claims, listing reviews, hosts and bookings
+  (token-gated)
 
 **Booking requests** collect dates, guests and contact details, show a night-by-night
 total and a reference (`IB-7KQ4M9`), and never ask for a card. Requests, applications
@@ -66,14 +68,19 @@ Data lives in `data/islebnb.db` (git-ignored).
 | `POST /api/claims` | Claim an existing listing (`CLAIM-XXXXXX`) |
 | `GET /api/claims/verified` | Listing ids verified to an owner |
 | `GET /api/listings/overrides` | Rates and copy published by owners (public) |
+| `GET /api/listings/created` | Listings owners created and the team approved (public) |
+| `GET /api/uploads/:file` | Photos uploaded by owners |
 | `POST /api/host/activate` | Set a password from an invitation, returns a session |
 | `POST /api/host/login` · `/logout` | Email + password sessions (`x-host-token`) |
 | `GET /api/host/dashboard` | The owner's listings, edits and booking requests |
-| `PATCH /api/host/listings/:id` | Publish rate, summary, description, rooms, amenities |
+| `POST /api/host/listings` | Create a listing — starts as `pending` review |
+| `POST /api/host/uploads` | Upload one photo (JPEG/PNG/WebP, 8 MB max) |
+| `PATCH /api/host/listings/:id` | Publish rate, name, location, copy, rooms, photos |
 | `PATCH /api/host/bookings/:reference` | Confirm or decline a request |
-| `GET /api/admin/bookings` · `/applications` · `/claims` · `/hosts` | Admin lists (requires `x-admin-token`) |
+| `GET /api/admin/bookings` · `/applications` · `/claims` · `/hosts` · `/listings` | Admin lists (requires `x-admin-token`) |
 | `PATCH /api/admin/applications/:reference` | Set status `pending` / `approved` / `rejected` |
 | `PATCH /api/admin/claims/:reference` | Set status `pending` / `verified` / `rejected` |
+| `PATCH /api/admin/listings/:id` | Approve a host listing: `pending` / `live` / `rejected` |
 | `POST /api/admin/hosts/:id/reinvite` | New invitation link, ends existing sessions |
 | `PATCH` · `DELETE /api/admin/hosts/:id` | Suspend/restore an account, or remove it |
 
@@ -90,16 +97,33 @@ delivery failure never fails the booking that caused it.
 **Host accounts.** Verifying a claim is what creates an owner account: the API links that
 listing to the claimant's email, issues a one-time invitation, and emails it. The owner
 sets a password at `/host/activate` and from then on manages only their own listings —
-rates, copy, rooms, amenities — and replies to booking requests by confirming or
-declining them. Their edits are stored in `listing_overrides` and applied over the seed
-catalogue at start-up, so `src/data/listings.ts` stays the source of names, photos and
-location while the owner owns the commercial details. Passwords are hashed with scrypt;
-sessions are opaque tokens in `host_sessions` and can be ended from the team dashboard.
-`SITE_URL` must be the public address in production: it is used for the invitation links.
+rates, name, location, copy, rooms, amenities and photos — and replies to booking requests
+by confirming or declining them. From `/host/new` they can add further properties
+themselves; those start as `pending` and appear in the team's **Listing reviews** tab, so
+nothing reaches guests without a human check. The same signed-in session gates every edit,
+and the server enforces "your account, your listing" on each call. Passwords are hashed
+with scrypt; sessions are opaque tokens in `host_sessions` and can be ended from the team
+dashboard. `SITE_URL` must be the public address in production: it is used for invitation
+links.
 
-**Still missing:** room types as separate bookable units, an availability calendar, photo
-uploads (owners send photographs to the team today), reviews, SMS/WhatsApp delivery, and
-payment (deliberately out of v1).
+**Owner content.** Two stores keep the catalogue current without a deploy:
+`listing_overrides` holds edits to the seeded properties (`src/data/listings.ts` stays the
+source of names, photos and location until the owner changes them) and `created_listings`
+holds properties owners added. Both are applied over the seed at start-up and re-read when
+a listing page opens, so a rate is never older than the visit.
+
+**Photos.** Owners upload from the dashboard. The browser downsizes to 1600px, re-encodes
+as WebP and strips EXIF before sending; the API checks the magic bytes, writes the file to
+`data/uploads/` and serves it back from `/api/uploads/<file>`. There is no image service
+and no dependency to install. Uploaded files are git-ignored with the rest of `data/`.
+
+**Throttling.** Writes are rate-limited per IP in three buckets: 40/hour anonymous (booking
+requests, applications, claims), 200/hour for signed-in host work (a burst of photo uploads
+is normal) and 10 per 15 minutes for password attempts.
+
+**Still missing:** room types as separate bookable units, an availability calendar,
+deleting a listing from the host dashboard, reviews, SMS/WhatsApp delivery, and payment
+(deliberately out of v1).
 
 ## Project shape
 

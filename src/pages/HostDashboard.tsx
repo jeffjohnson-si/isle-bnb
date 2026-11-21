@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Icon } from '../components/Icons'
+import { PhotoManager } from '../components/PhotoManager'
 import { amenityChoices } from '../data/amenities'
-import { listingById, type ListingOverride } from '../data/listings'
+import { listingById } from '../data/listings'
 import {
   ApiError,
   fetchHostOverview,
   logoutHost,
-  saveListingOverride,
+  saveListingContent,
   setHostBookingStatus,
   type AdminBooking,
   type HostListingState,
   type HostOverview,
+  type ListingContent,
 } from '../lib/api'
 import { clearHostToken, getHostToken } from '../lib/hostSession'
 import { listingLocation } from '../lib/location'
@@ -32,6 +34,24 @@ const statusStyle: Record<string, string> = {
   cancelled: 'bg-ink/10 text-ink/50',
 }
 
+const listingStatus: Record<string, { label: string; tone: string; note: string }> = {
+  live: {
+    label: 'Live',
+    tone: 'bg-palm/10 text-palm',
+    note: 'Guests can find and request this listing.',
+  },
+  pending: {
+    label: 'In review',
+    tone: 'bg-sun/30 text-ink/70',
+    note: 'Our team is checking it, usually within two business days. You can keep editing meanwhile.',
+  },
+  rejected: {
+    label: 'Not approved',
+    tone: 'bg-coral/10 text-coral',
+    note: 'This listing was not approved. Contact hosts@islebnb.com and we will explain why.',
+  },
+}
+
 function ListingEditor({
   token,
   state,
@@ -39,29 +59,34 @@ function ListingEditor({
 }: {
   token: string
   state: HostListingState
-  onSaved: (listingId: string, overrides: ListingOverride) => void
+  onSaved: (listingId: string, content: ListingContent) => void
 }) {
-  const listing = listingById(state.listingId)
-  const override = state.override
+  const seeded = listingById(state.listingId)
+  const content = state.content
 
   const [form, setForm] = useState({
-    price: String(override?.price ?? listing?.price ?? 0),
-    summary: override?.summary ?? listing?.summary ?? '',
-    description: override?.description ?? listing?.description ?? '',
-    guests: String(override?.guests ?? listing?.guests ?? 2),
-    bedrooms: String(override?.bedrooms ?? listing?.bedrooms ?? 1),
-    beds: String(override?.beds ?? listing?.beds ?? 1),
-    baths: String(override?.baths ?? listing?.baths ?? 1),
+    name: content?.name ?? seeded?.name ?? '',
+    island: content?.island ?? seeded?.island ?? '',
+    area: content?.area ?? seeded?.area ?? '',
+    province: content?.province ?? seeded?.province ?? '',
+    price: String(content?.price ?? seeded?.price ?? 0),
+    summary: content?.summary ?? seeded?.summary ?? '',
+    description: content?.description ?? seeded?.description ?? '',
+    guests: String(content?.guests ?? seeded?.guests ?? 2),
+    bedrooms: String(content?.bedrooms ?? seeded?.bedrooms ?? 1),
+    beds: String(content?.beds ?? seeded?.beds ?? 1),
+    baths: String(content?.baths ?? seeded?.baths ?? 1),
   })
   const [amenities, setAmenities] = useState<string[]>(
-    override?.amenities ?? listing?.amenities ?? [],
+    content?.amenities ?? seeded?.amenities ?? [],
   )
+  const [images, setImages] = useState<string[]>(content?.images ?? seeded?.images ?? [])
   const [fields, setFields] = useState<Record<string, string>>({})
   const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const currency = listing?.currency ?? 'USD'
+  const currency = content?.currency ?? seeded?.currency ?? 'USD'
   const choices = [...new Set([...amenityChoices, ...amenities])]
 
   const set = (key: keyof typeof form, value: string) => {
@@ -85,7 +110,11 @@ function ListingEditor({
     setError('')
     setSaved('')
     try {
-      const result = await saveListingOverride(token, state.listingId, {
+      const result = await saveListingContent(token, state.listingId, {
+        name: form.name.trim(),
+        island: form.island.trim(),
+        area: form.area.trim(),
+        province: form.province.trim(),
         price: Number(form.price) || 0,
         summary: form.summary.trim(),
         description: form.description.trim(),
@@ -94,9 +123,14 @@ function ListingEditor({
         beds: Number(form.beds) || 0,
         baths: Number(form.baths) || 0,
         amenities,
+        images,
       })
       onSaved(state.listingId, result)
-      setSaved('Published — visitors see this on their next page load.')
+      setSaved(
+        state.status === 'live'
+          ? 'Published — visitors see this on their next page load.'
+          : 'Saved. Your changes will show when the listing is approved.',
+      )
     } catch (saveError) {
       if (saveError instanceof ApiError) setFields(saveError.fields)
       setError(saveError instanceof Error ? saveError.message : 'Could not save the listing.')
@@ -113,6 +147,65 @@ function ListingEditor({
       </p>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label htmlFor="hostName" className="field-label">
+            Property name
+          </label>
+          <input
+            id="hostName"
+            value={form.name}
+            onChange={(event) => set('name', event.target.value)}
+            className={cn('field', fields.name && 'border-coral')}
+            aria-invalid={Boolean(fields.name)}
+          />
+          {fields.name && (
+            <p className="mt-1 text-xs font-semibold text-coral">{fields.name}</p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="hostIsland" className="field-label">
+            Island
+          </label>
+          <input
+            id="hostIsland"
+            value={form.island}
+            onChange={(event) => set('island', event.target.value)}
+            className={cn('field', fields.island && 'border-coral')}
+            aria-invalid={Boolean(fields.island)}
+          />
+          {fields.island && (
+            <p className="mt-1 text-xs font-semibold text-coral">{fields.island}</p>
+          )}
+        </div>
+        <div>
+          <label htmlFor="hostArea" className="field-label">
+            Town / village / area
+          </label>
+          <input
+            id="hostArea"
+            value={form.area}
+            onChange={(event) => set('area', event.target.value)}
+            className={cn('field', fields.area && 'border-coral')}
+            aria-invalid={Boolean(fields.area)}
+          />
+          {fields.area && (
+            <p className="mt-1 text-xs font-semibold text-coral">{fields.area}</p>
+          )}
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="hostProvince" className="field-label">
+            Province (optional)
+          </label>
+          <input
+            id="hostProvince"
+            value={form.province}
+            onChange={(event) => set('province', event.target.value)}
+            className="field"
+            placeholder="Western Province"
+          />
+        </div>
+
         <div className="sm:col-span-2">
           <label htmlFor="hostRate" className="field-label">
             Nightly rate ({currency})
@@ -256,6 +349,21 @@ function ListingEditor({
             })}
           </div>
         </div>
+
+        <div className="sm:col-span-2">
+          <PhotoManager
+            token={token}
+            images={images}
+            onChange={(next) => {
+              setImages(next)
+              setSaved('')
+              setFields((current) => ({ ...current, images: '' }))
+            }}
+          />
+          {fields.images && (
+            <p className="mt-1 text-xs font-semibold text-coral">{fields.images}</p>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -274,12 +382,18 @@ function ListingEditor({
           {saving ? 'Saving…' : 'Publish changes'}
           <Icon name="check" size={16} />
         </button>
-        <Link to={`/stays/${state.listingId}`} className="btn-outline">
-          View public page
-        </Link>
-        {override?.updatedAt && (
+        {state.status === 'live' ? (
+          <Link to={`/stays/${state.listingId}`} className="btn-outline">
+            View public page
+          </Link>
+        ) : (
+          <span className="text-xs text-ink/40">
+            The public page appears once the listing is approved.
+          </span>
+        )}
+        {content?.updatedAt && (
           <p className="text-xs text-ink/40">
-            Last published {new Date(override.updatedAt).toLocaleString('en-GB')}
+            Last saved {new Date(content.updatedAt).toLocaleString('en-GB')}
           </p>
         )}
       </div>
@@ -453,13 +567,15 @@ export function HostDashboardPage() {
   const active =
     data?.listings.find((listing) => listing.listingId === activeId) ?? data?.listings[0] ?? null
 
-  const applyOverride = (listingId: string, overrides: ListingOverride) => {
+  const applyContent = (listingId: string, content: ListingContent) => {
     setData((current) =>
       current
         ? {
             ...current,
             listings: current.listings.map((listing) =>
-              listing.listingId === listingId ? { ...listing, override: overrides } : listing,
+              listing.listingId === listingId
+                ? { ...listing, content, listingName: content.name ?? listing.listingName }
+                : listing,
             ),
           }
         : current,
@@ -486,6 +602,21 @@ export function HostDashboardPage() {
     )
   }
 
+  const cover = (listing: HostListingState) =>
+    listing.content?.images?.[0] ??
+    listingById(listing.listingId)?.images[0] ??
+    '/pics/hotel-pool.webp'
+
+  const where = (listing: HostListingState) => {
+    const seeded = listingById(listing.listingId)
+    if (listing.content?.island) {
+      return [listing.content.area, listing.content.island, listing.content.province]
+        .filter(Boolean)
+        .join(' · ')
+    }
+    return seeded ? listingLocation(seeded) : 'Verified property'
+  }
+
   return (
     <div className="section pt-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -498,9 +629,15 @@ export function HostDashboardPage() {
           </h1>
           <p className="mt-1 text-sm text-ink/55">{data?.host.email ?? 'Loading…'}</p>
         </div>
-        <button type="button" onClick={() => void signOut()} className="btn-outline">
-          Sign out
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/host/new" className="btn-primary">
+            Add a listing
+            <Icon name="arrowRight" size={16} />
+          </Link>
+          <button type="button" onClick={() => void signOut()} className="btn-outline">
+            Sign out
+          </button>
+        </div>
       </div>
 
       {loading && !data && (
@@ -522,11 +659,11 @@ export function HostDashboardPage() {
         <div className="card mt-8 px-6 py-16 text-center">
           <h2 className="text-xl font-semibold text-ink">No properties on this account yet</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink/60">
-            Your account is ready. The moment we verify a listing for you it will appear
-            here with its own rate editor and booking requests.
+            Add your first property here. Our team checks it, usually within two business
+            days, and then guests can find it.
           </p>
-          <Link to="/list-your-place" className="btn-primary mt-6">
-            Tell us about another property
+          <Link to="/host/new" className="btn-primary mt-6">
+            Add a listing
             <Icon name="arrowRight" size={16} />
           </Link>
         </div>
@@ -558,27 +695,36 @@ export function HostDashboardPage() {
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_1fr]">
             <div className="space-y-4">
               <div className="card overflow-hidden sm:flex">
-                {listingById(active.listingId) && (
-                  <img
-                    src={listingById(active.listingId)!.images[0]}
-                    alt={active.listingName}
-                    className="h-40 w-full object-cover sm:h-auto sm:w-40 sm:shrink-0"
-                  />
-                )}
+                <img
+                  src={cover(active)}
+                  alt={active.listingName}
+                  className="h-40 w-full object-cover sm:h-auto sm:w-40 sm:shrink-0"
+                />
                 <div className="flex flex-1 flex-col justify-center gap-1 p-5">
-                  <h2 className="font-display text-lg font-semibold text-ink">
-                    {active.listingName}
-                  </h2>
-                  <p className="text-sm text-ink/55">
-                    {listingById(active.listingId)
-                      ? listingLocation(listingById(active.listingId)!)
-                      : 'Verified property'}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="font-display text-lg font-semibold text-ink">
+                      {active.listingName}
+                    </h2>
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+                        listingStatus[active.status]?.tone ?? listingStatus.pending.tone,
+                      )}
+                    >
+                      {listingStatus[active.status]?.label ?? active.status}
+                    </span>
+                  </div>
+                  <p className="text-sm text-ink/55">{where(active)}</p>
                   <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-palm">
-                    {active.override?.price
-                      ? `Live at ${listingById(active.listingId)?.currency ?? 'USD'} ${active.override.price.toLocaleString()} / night`
-                      : 'Live — rate on request'}
+                    {active.content?.price
+                      ? `${active.content.currency ?? 'USD'} ${active.content.price.toLocaleString()} / night`
+                      : 'Rate on request'}
                   </p>
+                  {active.status !== 'live' && (
+                    <p className="mt-2 text-xs leading-relaxed text-ink/45">
+                      {listingStatus[active.status]?.note}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -586,7 +732,7 @@ export function HostDashboardPage() {
                 key={active.listingId}
                 token={token}
                 state={active}
-                onSaved={applyOverride}
+                onSaved={applyContent}
               />
             </div>
 
