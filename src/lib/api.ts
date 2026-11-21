@@ -17,8 +17,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
     response = await fetch(apiUrl(path), {
-      headers: { 'content-type': 'application/json' },
       ...init,
+      headers: { 'content-type': 'application/json', ...init?.headers },
     })
   } catch {
     throw new ApiError(
@@ -152,4 +152,142 @@ export async function apiIsUp() {
   } catch {
     return false
   }
+}
+
+/* ── claims ─────────────────────────────────────────────────────────────── */
+
+export interface ClaimInput {
+  listingId: string
+  listingName: string
+  claimantName: string
+  role: string
+  email: string
+  phone: string
+  proofType: string
+  proofDetail: string
+}
+
+export async function submitClaim(input: ClaimInput) {
+  const data = await request<{
+    claim: { reference: string; status: string }
+  }>('/api/claims', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  return data.claim
+}
+
+/** Listing ids claimed by an owner the team has verified. */
+export async function fetchVerifiedClaims() {
+  try {
+    const data = await request<{ listingIds: string[] }>('/api/claims/verified')
+    return data.listingIds
+  } catch {
+    // A missing claim service must never break a listing page.
+    return []
+  }
+}
+
+/* ── admin ──────────────────────────────────────────────────────────────── */
+
+export interface AdminClaim {
+  reference: string
+  listing_id: string
+  listing_name: string
+  claimant_name: string
+  role: string
+  email: string
+  phone: string
+  proof_type: string
+  proof_detail: string | null
+  status: 'pending' | 'verified' | 'rejected'
+  created_at: string
+}
+
+export interface AdminApplication {
+  reference: string
+  property_name: string
+  type: string
+  country: string
+  island: string
+  area: string
+  address: string | null
+  nightly_rate: number
+  currency: string
+  guests: number
+  bedrooms: number
+  description: string
+  amenities: string
+  contact_name: string
+  email: string
+  phone: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+}
+
+export interface AdminBooking {
+  reference: string
+  listing_name: string
+  country: string
+  island: string
+  check_in: string
+  check_out: string
+  guests: number
+  nights: number
+  guest_name: string
+  guest_email: string
+  guest_phone: string
+  notes: string | null
+  total: number
+  currency: string
+  status: string
+  created_at: string
+}
+
+const admin = (token: string) => ({ 'x-admin-token': token })
+
+export async function fetchAdminClaims(token: string) {
+  const data = await request<{ claims: AdminClaim[] }>('/api/admin/claims', {
+    headers: admin(token),
+  })
+  return data.claims
+}
+
+export async function fetchAdminApplications(token: string) {
+  const data = await request<{ applications: AdminApplication[] }>(
+    '/api/admin/applications',
+    { headers: admin(token) },
+  )
+  return data.applications
+}
+
+export async function fetchAdminBookings(token: string) {
+  const data = await request<{ bookings: AdminBooking[] }>('/api/admin/bookings', {
+    headers: admin(token),
+  })
+  return data.bookings
+}
+
+export async function setClaimStatus(
+  token: string,
+  reference: string,
+  status: 'pending' | 'verified' | 'rejected',
+) {
+  const data = await request<{ claim: AdminClaim }>(
+    `/api/admin/claims/${encodeURIComponent(reference)}`,
+    { method: 'PATCH', headers: admin(token), body: JSON.stringify({ status }) },
+  )
+  return data.claim
+}
+
+export async function setApplicationStatus(
+  token: string,
+  reference: string,
+  status: 'pending' | 'approved' | 'rejected',
+) {
+  const data = await request<{ application: AdminApplication }>(
+    `/api/admin/applications/${encodeURIComponent(reference)}`,
+    { method: 'PATCH', headers: admin(token), body: JSON.stringify({ status }) },
+  )
+  return data.application
 }

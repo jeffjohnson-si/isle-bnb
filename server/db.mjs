@@ -54,14 +54,35 @@ db.exec(`
     created_at     TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS claims (
+    reference      TEXT PRIMARY KEY,
+    listing_id     TEXT NOT NULL,
+    listing_name   TEXT NOT NULL,
+    claimant_name  TEXT NOT NULL,
+    role           TEXT NOT NULL,
+    email          TEXT NOT NULL,
+    phone          TEXT NOT NULL,
+    proof_type     TEXT NOT NULL,
+    proof_detail   TEXT,
+    status         TEXT NOT NULL DEFAULT 'pending',
+    created_at     TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS bookings_created ON bookings (created_at DESC);
   CREATE INDEX IF NOT EXISTS applications_created ON applications (created_at DESC);
+  CREATE INDEX IF NOT EXISTS claims_created ON claims (created_at DESC);
+  CREATE INDEX IF NOT EXISTS claims_listing ON claims (listing_id);
 `)
 
 const bookingColumns = [
   'reference', 'listing_id', 'listing_name', 'country', 'island', 'region',
   'check_in', 'check_out', 'guests', 'nights', 'guest_name', 'guest_email',
   'guest_phone', 'notes', 'total', 'currency', 'status', 'created_at',
+]
+
+const claimColumns = [
+  'reference', 'listing_id', 'listing_name', 'claimant_name', 'role', 'email',
+  'phone', 'proof_type', 'proof_detail', 'status', 'created_at',
 ]
 
 const applicationColumns = [
@@ -132,4 +153,36 @@ export function updateApplicationStatus(reference, status) {
     reference,
   )
   return db.prepare('SELECT * FROM applications WHERE reference = ?').get(reference)
+}
+
+export function insertClaim(record) {
+  const placeholders = claimColumns.map(() => '?').join(', ')
+  db.prepare(
+    `INSERT INTO claims (${claimColumns.join(', ')}) VALUES (${placeholders})`,
+  ).run(...claimColumns.map((column) => record[column]))
+  return db.prepare('SELECT * FROM claims WHERE reference = ?').get(record.reference)
+}
+
+export function listClaims(limit = 200) {
+  return db
+    .prepare('SELECT * FROM claims ORDER BY created_at DESC LIMIT ?')
+    .all(limit)
+}
+
+export function updateClaimStatus(reference, status) {
+  db.prepare('UPDATE claims SET status = ? WHERE reference = ?').run(status, reference)
+  return db.prepare('SELECT * FROM claims WHERE reference = ?').get(reference)
+}
+
+export function deleteClaim(reference) {
+  const result = db.prepare('DELETE FROM claims WHERE reference = ?').run(reference)
+  return result.changes > 0
+}
+
+/** Listing ids that a verified owner has claimed. */
+export function verifiedListingIds() {
+  return db
+    .prepare("SELECT DISTINCT listing_id FROM claims WHERE status = 'verified'")
+    .all()
+    .map((row) => row.listing_id)
 }

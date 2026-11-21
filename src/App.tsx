@@ -22,6 +22,8 @@ import { BookingsPage } from './pages/Bookings'
 import { SavedPage } from './pages/Saved'
 import { ListPropertyPage } from './pages/ListProperty'
 import { HowItWorksPage } from './pages/HowItWorks'
+import { ClaimPage } from './pages/Claim'
+import { AdminPage } from './pages/Admin'
 import { NotFoundPage } from './pages/NotFound'
 
 /** /islands/:code was the old URL — keep it working. */
@@ -92,6 +94,8 @@ export default function App() {
             <Route path="/bookings" element={<BookingsPage />} />
             <Route path="/saved" element={<SavedPage />} />
             <Route path="/list-your-place" element={<ListPropertyPage />} />
+            <Route path="/claim/:id" element={<ClaimPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route path="/how-it-works" element={<HowItWorksPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>

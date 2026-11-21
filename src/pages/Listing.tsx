@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Icon } from '../components/Icons'
 import { BookingCard } from '../components/BookingCard'
@@ -6,6 +6,7 @@ import { ListingCard } from '../components/ListingCard'
 import { NotFoundPage } from './NotFound'
 import { countryByCode } from '../data/countries'
 import { listingById, listings } from '../data/listings'
+import { fetchVerifiedClaims } from '../lib/api'
 import { approxUsd, formatMoney } from '../lib/money'
 import { isSaved, toggleSaved } from '../lib/storage'
 import { listingLocation, listingLocality } from '../lib/location'
@@ -28,6 +29,19 @@ export function ListingPage() {
   const listing = listingById(id)
   const [saved, setSaved] = useState(() => (listing ? isSaved(listing.id) : false))
   const [copied, setCopied] = useState(false)
+  const [managedByOwner, setManagedByOwner] = useState(false)
+
+  useEffect(() => {
+    const current = listing
+    if (!current) return
+    let active = true
+    void fetchVerifiedClaims().then((ids) => {
+      if (active) setManagedByOwner(ids.includes(current.id))
+    })
+    return () => {
+      active = false
+    }
+  }, [listing?.id])
 
   usePageTitle(listing ? `${listing.name} · Isle BnB` : 'Stay not found · Isle BnB')
 
@@ -72,6 +86,12 @@ export function ListingPage() {
             {listing.badge && <span className="chip">{listing.badge}</span>}
             {listing.freeCancellation && (
               <span className="chip bg-palm/10 text-palm">Free cancellation</span>
+            )}
+            {managedByOwner && (
+              <span className="chip bg-palm/10 text-palm">
+                <Icon name="shield" size={13} />
+                Managed by the owner
+              </span>
             )}
           </div>
           <h1 className="mt-3 text-balance font-display text-3xl font-semibold leading-tight text-ink sm:text-[2.9rem]">
@@ -174,6 +194,27 @@ export function ListingPage() {
               On Isle BnB since {listing.host.since}
             </p>
           </div>
+
+          {managedByOwner ? (
+            <p className="mt-5 flex items-start gap-2.5 rounded-2xl border border-palm/20 bg-palm/5 px-4 py-3 text-sm leading-relaxed text-palm">
+              <Icon name="shield" size={17} className="mt-0.5 shrink-0" />
+              The property manages this listing. Rates, rooms and photos come straight
+              from them.
+            </p>
+          ) : (
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink/10 bg-white/60 px-4 py-3">
+              <p className="text-sm leading-relaxed text-ink/60">
+                Do you own or manage {listing.name}?
+              </p>
+              <Link
+                to={`/claim/${listing.id}`}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-lagoon transition hover:text-ink"
+              >
+                Claim this listing
+                <Icon name="arrowRight" size={15} />
+              </Link>
+            </div>
+          )}
 
           {/* highlights */}
           <div className="mt-6 grid gap-4 sm:grid-cols-3">

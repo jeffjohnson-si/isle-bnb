@@ -303,6 +303,109 @@ async function runChecks(browser) {
     throw new Error(`application ${hostReference} was not stored on the server`)
   }
 
+  // ---- claim flow ----------------------------------------------------------
+  step('claim')
+  let claimReference = null
+  let claimedListingId = null
+  if (firstStay) {
+    await desktop.goto(`${BASE}/${firstStay.replace(/^\//, '')}`, {
+      waitUntil: 'networkidle2',
+    })
+    claimedListingId = firstStay.replace(/^.*#\/stays\//, '')
+    await desktop.click('main a[href*="#/claim/"]')
+    await desktop.waitForSelector('text/Is this your property?', { timeout: 4000 })
+    await shot(desktop, 'd-claim.png')
+
+    await setValue(desktop, '#claimantName', 'Test Owner')
+    await setValue(desktop, '#claimEmail', 'owner@example.com')
+    await setValue(desktop, '#claimPhone', '+677 70000')
+    await setValue(desktop, '#proofDetail', 'Call the front desk during office hours.')
+    await desktop.click('form button[type="submit"]')
+    await desktop.waitForSelector('text/Claim received', { timeout: 8000 })
+    // The page smooth-scrolls to the top on success; let it land first.
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await shot(desktop, 'd-claim-confirmed.png')
+
+    claimReference = await desktop.evaluate(
+      () => (document.body.innerText.match(/CLAIM-[A-Z0-9]{6}/) ?? [null])[0],
+    )
+    if (!claimReference) throw new Error('no claim reference was shown')
+
+    const storedClaims = await fetch(`${API}/api/admin/claims`, {
+      headers: { 'x-admin-token': ADMIN_TOKEN },
+    }).then((res) => res.json())
+    const stored = storedClaims.claims.find((row) => row.reference === claimReference)
+    if (!stored) throw new Error(`claim ${claimReference} was not stored on the server`)
+    if (stored.listing_id !== claimedListingId) {
+      throw new Error(`claim stored against ${stored.listing_id}, expected ${claimedListingId}`)
+    }
+
+    // ---- admin dashboard ---------------------------------------------------
+    try {
+      step('admin')
+      await desktop.goto(`${BASE}/#/admin`, { waitUntil: 'networkidle2' })
+      await desktop.waitForSelector('text/Team dashboard', { timeout: 4000 })
+      await shot(desktop, 'd-admin-gate.png')
+
+      await setValue(desktop, '#token', ADMIN_TOKEN)
+      await desktop.click('form button[type="submit"]')
+      await desktop.waitForSelector('text/Operations dashboard', { timeout: 6000 })
+
+      // The new claim must be in the queue.
+      await desktop.evaluate(() => {
+        const tab = [...document.querySelectorAll('button')].find((button) =>
+          button.textContent?.startsWith('Listing claims'),
+        )
+        if (!tab) throw new Error('claims tab missing')
+        tab.click()
+      })
+      await desktop.waitForSelector(`text/${claimReference}`, { timeout: 4000 })
+      // Let the tab's colour transition settle before the screenshot.
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      await shot(desktop, 'd-admin-claims.png')
+
+      // Verify it, which hands the listing over to the owner.
+      await desktop.evaluate((reference) => {
+        const card = [...document.querySelectorAll('article')].find((el) =>
+          el.textContent?.includes(reference),
+        )
+        if (!card) throw new Error(`claim card ${reference} missing`)
+        const button = [...card.querySelectorAll('button')].find(
+          (el) => el.textContent?.trim() === 'Verify owner',
+        )
+        if (!button) throw new Error('verify button missing')
+        button.click()
+      }, claimReference)
+      await desktop.waitForSelector('text/verified', { timeout: 6000 })
+
+      const verified = await fetch(`${API}/api/claims/verified`).then((res) => res.json())
+      if (!verified.listingIds.includes(claimedListingId)) {
+        throw new Error(`listing ${claimedListingId} was not marked owner-managed`)
+      }
+
+      await desktop.goto(`${BASE}/${firstStay.replace(/^\//, '')}`, {
+        waitUntil: 'networkidle2',
+      })
+      await desktop.waitForSelector('text/Managed by the owner', { timeout: 6000 })
+      const claimLinkGone = await desktop.$('main a[href*="#/claim/"]')
+      if (claimLinkGone) throw new Error('verified listing still offers "Claim this listing"')
+      await shot(desktop, 'd-listing-managed.png')
+    } finally {
+      // Never leave the catalogue claiming a real property after a failed run.
+      await fetch(`${API}/api/admin/claims/${encodeURIComponent(claimReference)}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': ADMIN_TOKEN },
+      }).catch(() => {})
+    }
+
+    const leftovers = await fetch(`${API}/api/claims/verified`).then((res) => res.json())
+    if (leftovers.listingIds.includes(claimedListingId)) {
+      throw new Error(`test claim ${claimReference} was not removed`)
+    }
+  } else {
+    console.log('  no stays in the catalogue — skipping the claim and admin checks')
+  }
+
   // ---- mobile -------------------------------------------------------------
   step('mobile')
   const mobile = await newPage(browser, {
@@ -335,6 +438,20 @@ async function runChecks(browser) {
   await mobile.goto(`${BASE}/#/list-your-place`, { waitUntil: 'networkidle2' })
   await shot(mobile, 'm-host.png')
 
+  if (claimedListingId) {
+    await mobile.goto(`${BASE}/#/claim/${claimedListingId}`, { waitUntil: 'networkidle2' })
+    await shot(mobile, 'm-claim.png')
+    const claimOverflow = await mobile.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    )
+    if (claimOverflow > 1) {
+      throw new Error(`claim page overflows mobile by ${claimOverflow}px`)
+    }
+  }
+
+  await mobile.goto(`${BASE}/#/admin`, { waitUntil: 'networkidle2' })
+  await shot(mobile, 'm-admin.png')
+
   await mobile.goto(`${BASE}/#/bookings`, { waitUntil: 'networkidle2' })
   await shot(mobile, 'm-bookings.png')
 
@@ -344,7 +461,7 @@ async function runChecks(browser) {
   } else {
     console.log(
       bookingVerified
-        ? 'OK — screenshots in .shots/, booking + host flows verified, no console errors'
+        ? 'OK — screenshots in .shots/, booking + host + claim flows and admin dashboard verified, no console errors'
         : 'OK — screenshots in .shots/, host flow verified (empty catalogue, booking skipped), no console errors',
     )
   }

@@ -19,7 +19,8 @@ npm run dev        # http://localhost:5180
 | `npm run dev` | Vite dev server on port 5180 |
 | `npm run build` | Type-check (`tsc --noEmit`) then build to `dist/` |
 | `npm run preview` | Serve the production build on port 4173 |
-| `npm run check` | Headless Chrome pass over every page + the booking and host flows, writes screenshots to `.shots/` (needs Chrome; override with `CHROME_PATH`) |
+| `npm run check` | Headless Chrome pass over every page plus the booking, host, claim and admin flows, writes screenshots to `.shots/` (needs Chrome; override with `CHROME_PATH`) |
+| `node scripts/clean-test-data.mjs` | Delete the fake bookings, applications and claims the checks leave in the dev database |
 | `npm run icons` | Regenerate the PWA icons from `scripts/make-icons.py` (Pillow) |
 | `python scripts/optimise-photos.py` | Reprocess photos: upscale to 1200px, sharpen the luminance channel adaptively, save WebP (quality 76) and delete the JPEG. Add `--restore` to re-import originals from `Desktop/islebnb` first |
 
@@ -28,7 +29,8 @@ npm run dev        # http://localhost:5180
 Each area is its own page — the landing screen is the hero and search only.
 
 - `/` — hero landing page with search (island, guests, stay type)
-- `/explore` — destination picker: one card per country with stays, tap through to its listings
+- `/explore` — three region cards: Melanesia, Polynesia, Micronesia
+- `/explore/:region` — the countries in that region, tap through to its listings
 - `/stays` — searchable, filterable list of every stay across all countries
 - `/countries` — directory of all 21 Pacific nations, grouped by region
 - `/countries/:code` — one country: facts plus its stays
@@ -38,10 +40,12 @@ Each area is its own page — the landing screen is the hero and search only.
 - `/bookings` — booking requests with dates, totals and reference numbers
 - `/saved` — wishlist of saved stays
 - `/list-your-place` — host onboarding form and host standards
+- `/claim/:id` — a property owner claims a listing we built from public information
+- `/admin` — team dashboard for applications, claims and bookings (token-gated)
 
 **Booking requests** collect dates, guests and contact details, show a night-by-night
-total and a reference (`IB-7KQ4M9`), and never ask for a card. Requests and host
-applications are written to a SQLite database by the API in `server/`; saved stays and this
+total and a reference (`IB-7KQ4M9`), and never ask for a card. Requests, applications
+and claims are written to a SQLite database by the API in `server/`; saved stays and this
 device's list of booking references stay in `localStorage`.
 
 
@@ -52,19 +56,29 @@ Data lives in `data/islebnb.db` (git-ignored).
 
 | Endpoint | Purpose |
 | --- | --- |
+| `GET /api/health` | Liveness plus whether mail is `live` or `log-only` |
 | `POST /api/bookings` | Create a booking request. Validated server-side; returns a reference |
 | `GET /api/bookings?refs=IB-A,IB-B` | Look up this device's requests |
 | `DELETE /api/bookings/:reference` | Cancel a request |
 | `POST /api/applications` | Create a host application |
-| `GET /api/admin/bookings` · `/api/admin/applications` | Admin list (requires `x-admin-token`) |
+| `POST /api/claims` | Claim an existing listing (`CLAIM-XXXXXX`) |
+| `GET /api/claims/verified` | Listing ids verified to an owner |
+| `GET /api/admin/bookings` · `/applications` · `/claims` | Admin lists (requires `x-admin-token`) |
 | `PATCH /api/admin/applications/:reference` | Set status `pending` / `approved` / `rejected` |
+| `PATCH /api/admin/claims/:reference` | Set status `pending` / `verified` / `rejected` |
 
 Environment variables (see `.env.example`): `PORT`, `ADMIN_TOKEN`, `ALLOWED_ORIGIN`,
-`DATA_DIR`, and `VITE_API_BASE` for the front end. Vite proxies `/api` to `localhost:8787`
-in both dev and preview, so the app and API can share an origin.
+`DATA_DIR`, `BREVO_API_KEY`, `MAIL_FROM`, `OPS_INBOX`, `SITE_URL`, and `VITE_API_BASE` for
+the front end. Vite proxies `/api` to `localhost:8787` in both dev and preview, so the app
+and API can share an origin.
 
-**Still missing:** email/WhatsApp delivery to properties, admin screens, host accounts and
-the claim flow, reviews. The API stores and serves; it does not notify anyone yet.
+**Email** (`server/mail.mjs`) sends through Brevo's transactional API. Every booking,
+application and claim emails the person who submitted it, plus a copy to `OPS_INBOX` when
+that is set. Without `BREVO_API_KEY` it logs each message to the console instead — a
+delivery failure never fails the booking that caused it.
+
+**Still missing:** host accounts, room/rate editing from a verified claim, reviews, SMS or
+WhatsApp delivery, and payment (deliberately out of v1).
 
 ## Project shape
 
@@ -80,9 +94,11 @@ src/
     listings.ts          live catalogue — empty until properties are verified
     experiences.ts       things-to-do cards
   components/            Header, Footer, ListingCard, SearchBar, BookingCard, …
-  pages/                 Home, Explore, Stays, Countries, Country, Experiences, Listing,
-                         Bookings, Saved, ListProperty, HowItWorks, NotFound
-  lib/                   money (local currency + USD estimate), storage, pwa hooks, utils
+  pages/                 Home, Explore, Region, Stays, Countries, Country, Experiences,
+                         Listing, Bookings, Saved, ListProperty, Claim, Admin, HowItWorks,
+                         NotFound
+  lib/                   money (local currency + USD estimate), api client, storage, pwa
+                         hooks, utils
   types.ts               Country / Listing / Booking / HostApplication
 ```
 

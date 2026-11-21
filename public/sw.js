@@ -1,5 +1,5 @@
 /* Isle BnB service worker — keeps the app shell usable on slow island wifi. */
-const CACHE = 'islebnb-shell-v1'
+const CACHE = 'islebnb-shell-v2'
 
 const SHELL = [
   '/',
@@ -40,6 +40,9 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
+
+  // Never cache the API: bookings, claims and owner status must always be live.
+  if (url.pathname.startsWith('/api/')) return
 
   // Navigations: network first, fall back to the cached shell.
   if (request.mode === 'navigate') {

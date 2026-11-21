@@ -4,26 +4,37 @@
  *   npm run api          # http://localhost:8787
  *
  * Endpoints
- *   GET    /api/health
+ *   GET    /api/health                       { ok, mail: 'live' | 'log-only' }
  *   POST   /api/bookings                     create a booking request
  *   GET    /api/bookings?refs=IB-A,IB-B      look up this device's requests
  *   DELETE /api/bookings/:reference          cancel a request
  *   POST   /api/applications                 create a host application
+ *   POST   /api/claims                       claim an existing listing
+ *   GET    /api/claims/verified              listing ids verified to an owner
  *   GET    /api/admin/bookings               (x-admin-token)
  *   GET    /api/admin/applications           (x-admin-token)
  *   PATCH  /api/admin/applications/:reference (x-admin-token)
+ *   GET    /api/admin/claims                 (x-admin-token)
+ *   PATCH  /api/admin/claims/:reference      (x-admin-token)
+ *   DELETE /api/admin/claims/:reference      (x-admin-token)
  */
 import { createServer } from 'node:http'
 import { randomInt } from 'node:crypto'
+import { applicationEmails, bookingEmails, claimEmails, mailConfig, sendMail } from './mail.mjs'
 import {
   cancelBooking,
+  deleteClaim,
   getBooking,
   getBookingsByReferences,
   insertApplication,
   insertBooking,
+  insertClaim,
   listApplications,
   listBookings,
+  listClaims,
   updateApplicationStatus,
+  updateClaimStatus,
+  verifiedListingIds,
 } from './db.mjs'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -221,6 +232,47 @@ function validateApplication(input) {
   }
 }
 
+const CLAIM_ROLES = ['Owner', 'Manager', 'Authorised representative']
+const CLAIM_PROOFS = ['Published phone callback', 'Domain email', 'Business licence', 'Social media post']
+
+function validateClaim(input) {
+  const fields = {}
+  const listingId = text(input.listingId)
+  const listingName = text(input.listingName)
+  const claimantName = text(input.claimantName)
+  const role = text(input.role)
+  const email = text(input.email)
+  const phone = text(input.phone)
+  const proofType = text(input.proofType)
+  const proofDetail = text(input.proofDetail)
+
+  if (!listingId) fields.listingId = 'Missing listing'
+  if (!listingName) fields.listingName = 'Missing listing name'
+  if (!claimantName) fields.claimantName = 'Tell us who you are'
+  if (!CLAIM_ROLES.includes(role)) fields.role = 'Choose your role'
+  if (!isEmail(email)) fields.email = 'Enter a valid email address'
+  if (phone.replace(/[^\d]/g, '').length < 6) fields.phone = 'Enter a phone number'
+  if (!CLAIM_PROOFS.includes(proofType)) fields.proofType = 'Choose how we can verify you'
+
+  if (Object.keys(fields).length) return { fields }
+
+  return {
+    record: {
+      reference: makeReference('CLAIM'),
+      listing_id: listingId,
+      listing_name: listingName,
+      claimant_name: claimantName,
+      role,
+      email,
+      phone,
+      proof_type: proofType,
+      proof_detail: proofDetail || null,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    },
+  }
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host}`)
   const cors = corsHeaders(request)
@@ -240,7 +292,12 @@ const server = createServer(async (request, response) => {
 
   try {
     if (request.method === 'GET' && url.pathname === '/api/health') {
-      return json(response, 200, { ok: true }, cors)
+      return json(
+        response,
+        200,
+        { ok: true, mail: mailConfig.enabled ? 'live' : 'log-only' },
+        cors,
+      )
     }
 
     if (request.method === 'POST' && url.pathname === '/api/bookings') {
@@ -254,6 +311,7 @@ const server = createServer(async (request, response) => {
       }
       const saved = insertBooking(record)
       console.log(`booking ${saved.reference} — ${saved.listing_name} (${saved.check_in} → ${saved.check_out})`)
+      for (const message of bookingEmails(saved)) await sendMail(message)
       return json(response, 201, { booking: saved }, cors)
     }
 
@@ -285,7 +343,54 @@ const server = createServer(async (request, response) => {
       }
       const saved = insertApplication(record)
       console.log(`application ${saved.reference} — ${saved.property_name}`)
+      for (const message of applicationEmails(saved)) await sendMail(message)
       return json(response, 201, { application: saved }, cors)
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/claims/verified') {
+      return json(response, 200, { listingIds: verifiedListingIds() }, cors)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/claims') {
+      if (!allowWrite(ip)) {
+        return json(response, 429, { error: 'Too many requests, try again later' }, cors)
+      }
+      const body = await readBody(request)
+      const { fields, record } = validateClaim(body)
+      if (fields) {
+        return json(response, 400, { error: 'Invalid claim', fields }, cors)
+      }
+      const saved = insertClaim(record)
+      console.log(`claim ${saved.reference} — ${saved.listing_name} by ${saved.claimant_name}`)
+      for (const message of claimEmails(saved)) await sendMail(message)
+      return json(response, 201, { claim: saved }, cors)
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/admin/claims') {
+      if (!isAdmin) return json(response, 401, { error: 'Unauthorised' }, cors)
+      return json(response, 200, { claims: listClaims() }, cors)
+    }
+
+    if (request.method === 'PATCH' && url.pathname.startsWith('/api/admin/claims/')) {
+      if (!isAdmin) return json(response, 401, { error: 'Unauthorised' }, cors)
+      const reference = decodeURIComponent(url.pathname.split('/').pop() ?? '')
+      const body = await readBody(request)
+      const status = text(body.status)
+      if (!['pending', 'verified', 'rejected'].includes(status)) {
+        return json(response, 400, { error: 'Invalid status' }, cors)
+      }
+      const updated = updateClaimStatus(reference, status)
+      if (!updated) return json(response, 404, { error: 'Not found' }, cors)
+      return json(response, 200, { claim: updated }, cors)
+    }
+
+    if (request.method === 'DELETE' && url.pathname.startsWith('/api/admin/claims/')) {
+      if (!isAdmin) return json(response, 401, { error: 'Unauthorised' }, cors)
+      const reference = decodeURIComponent(url.pathname.split('/').pop() ?? '')
+      if (!deleteClaim(reference)) {
+        return json(response, 404, { error: 'Not found' }, cors)
+      }
+      return json(response, 200, { deleted: reference }, cors)
     }
 
     if (request.method === 'GET' && url.pathname === '/api/admin/bookings') {
