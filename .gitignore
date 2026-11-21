@@ -8,4 +8,6 @@ dist-ssr
 .env.*
 !.env.example
 
-data/
+# The API's SQLite database. Anchored: without the leading slash this also
+# matched src/data/, which silently kept the whole catalogue out of git.
+/data/

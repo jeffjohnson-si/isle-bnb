@@ -6,22 +6,27 @@ import {
   fetchAdminApplications,
   fetchAdminBookings,
   fetchAdminClaims,
+  fetchAdminHosts,
+  reinviteHost,
   setApplicationStatus,
   setClaimStatus,
+  setHostStatus,
   type AdminApplication,
   type AdminBooking,
   type AdminClaim,
+  type AdminHost,
 } from '../lib/api'
 import { cn } from '../lib/utils'
 import { usePageTitle } from '../lib/usePageTitle'
 
 const TOKEN_KEY = 'islebnb.admintoken.v1'
 
-type Tab = 'applications' | 'claims' | 'bookings'
+type Tab = 'applications' | 'claims' | 'hosts' | 'bookings'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'applications', label: 'Host applications' },
   { id: 'claims', label: 'Listing claims' },
+  { id: 'hosts', label: 'Host accounts' },
   { id: 'bookings', label: 'Bookings' },
 ]
 
@@ -61,6 +66,8 @@ function Empty({ tab }: { tab: Tab }) {
   const copy: Record<Tab, string> = {
     applications: 'No host applications yet. They arrive from the “List your place” form.',
     claims: 'No listing claims yet. They arrive from the “Claim this listing” link.',
+    hosts:
+      'No host accounts yet. Verifying a claim creates one and emails the owner an invitation.',
     bookings: 'No booking requests yet. They arrive from a listing page.',
   }
   return (
@@ -70,6 +77,41 @@ function Empty({ tab }: { tab: Tab }) {
   )
 }
 
+/** Invitation links are credentials — shown once and easy to copy. */
+function CopyLink({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl bg-sand px-3 py-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-ink/45">
+        Invitation link
+      </p>
+      <p className="mt-1 break-all font-mono text-[11px] text-ink/70">{url}</p>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        className="mt-2 text-xs font-bold text-lagoon hover:text-ink"
+      >
+        {copied ? 'Copied' : 'Copy link'}
+      </button>
+    </div>
+  )
+}
+
+/** Prefer the origin-relative link so it works from whichever host we are on. */
+const invitationLink = (path: string | null, absolute: string | null) =>
+  path ? `${window.location.origin}${path}` : (absolute ?? '')
+
 export function AdminPage() {
   usePageTitle('Team dashboard · Isle BnB')
 
@@ -78,7 +120,9 @@ export function AdminPage() {
   const [tab, setTab] = useState<Tab>('applications')
   const [applications, setApplications] = useState<AdminApplication[]>([])
   const [claims, setClaims] = useState<AdminClaim[]>([])
+  const [hosts, setHosts] = useState<AdminHost[]>([])
   const [bookings, setBookings] = useState<AdminBooking[]>([])
+  const [invite, setInvite] = useState<{ email: string; url: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -87,13 +131,15 @@ export function AdminPage() {
     setLoading(true)
     setError('')
     try {
-      const [apps, claimRows, bookingRows] = await Promise.all([
+      const [apps, claimRows, hostRows, bookingRows] = await Promise.all([
         fetchAdminApplications(activeToken),
         fetchAdminClaims(activeToken),
+        fetchAdminHosts(activeToken),
         fetchAdminBookings(activeToken),
       ])
       setApplications(apps)
       setClaims(claimRows)
+      setHosts(hostRows)
       setBookings(bookingRows)
     } catch (error) {
       if (error instanceof ApiError && /unauthoris/i.test(error.message)) {
@@ -154,10 +200,58 @@ export function AdminPage() {
     setBusy(reference)
     setError('')
     try {
-      const updated = await setClaimStatus(token, reference, status)
-      setClaims((rows) => rows.map((row) => (row.reference === reference ? updated : row)))
+      const result = await setClaimStatus(token, reference, status)
+      setClaims((rows) =>
+        rows.map((row) => (row.reference === reference ? result.claim : row)),
+      )
+      if (result.host) {
+        // A new owner account: show the invitation link so it can be handed over
+        // even when email is still log-only.
+        setHosts(await fetchAdminHosts(token))
+        setInvite(
+          result.invitePath || result.inviteUrl
+            ? {
+                email: result.host.email,
+                url: invitationLink(result.invitePath, result.inviteUrl),
+              }
+            : null,
+        )
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not update the claim.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const reinvite = async (id: number) => {
+    const key = `host-${id}`
+    setBusy(key)
+    setError('')
+    try {
+      const result = await reinviteHost(token, id)
+      setInvite({
+        email: result.host.email,
+        url: invitationLink(result.invitePath, result.inviteUrl),
+      })
+      setHosts(await fetchAdminHosts(token))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not re-invite the host.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const toggleHost = async (host: AdminHost) => {
+    const key = `host-${host.id}`
+    setBusy(key)
+    setError('')
+    try {
+      const status = host.status === 'suspended' ? 'active' : 'suspended'
+      await setHostStatus(token, host.id, status)
+      setHosts(await fetchAdminHosts(token))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not update the account.')
     } finally {
       setBusy('')
     }
@@ -209,12 +303,10 @@ export function AdminPage() {
     )
   }
 
-  const pendingApplications = applications.filter((row) => row.status === 'pending').length
-  const pendingClaims = claims.filter((row) => row.status === 'pending').length
-
   const counts: Record<Tab, number> = {
-    applications: pendingApplications,
-    claims: pendingClaims,
+    applications: applications.filter((row) => row.status === 'pending').length,
+    claims: claims.filter((row) => row.status === 'pending').length,
+    hosts: hosts.filter((row) => row.status === 'invited').length,
     bookings: bookings.filter((row) => row.status === 'pending').length,
   }
 
@@ -229,8 +321,8 @@ export function AdminPage() {
             Operations dashboard
           </h1>
           <p className="mt-1 text-sm text-ink/55">
-            {applications.length} applications · {claims.length} claims ·{' '}
-            {bookings.length} bookings
+            {applications.length} applications · {claims.length} claims · {hosts.length} host
+            account{hosts.length === 1 ? '' : 's'} · {bookings.length} bookings
           </p>
         </div>
         <div className="flex gap-2">
@@ -284,8 +376,32 @@ export function AdminPage() {
         </p>
       )}
 
+      {invite && tab !== 'hosts' && (
+        <div className="mt-4 rounded-2xl border border-palm/25 bg-palm/5 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-palm">
+                Invitation for {invite.email}
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-palm/70">
+                It was emailed to the owner. Until email is switched on, send this link
+                yourself — it lets them set a password once.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setInvite(null)}
+              className="text-xs font-semibold text-palm/60 hover:text-palm"
+            >
+              Dismiss
+            </button>
+          </div>
+          <CopyLink url={invite.url} />
+        </div>
+      )}
+
       <div className="mt-6 space-y-4">
-        {loading && !applications.length && !claims.length && !bookings.length && (
+        {loading && !applications.length && !claims.length && !hosts.length && (
           <p className="text-sm text-ink/50">Loading the queue…</p>
         )}
 
@@ -504,6 +620,82 @@ export function AdminPage() {
                 <p className="mt-3 text-xs leading-relaxed text-ink/40">
                   Only verify after speaking to the property on a number you found
                   independently.
+                </p>
+              </article>
+            ))
+          ))}
+
+        {tab === 'hosts' &&
+          (hosts.length === 0 ? (
+            <Empty tab="hosts" />
+          ) : (
+            hosts.map((host) => (
+              <article key={host.id} className="card p-5 sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-display text-xl font-semibold text-ink">
+                        {host.name || host.email}
+                      </h2>
+                      <StatusPill status={host.status} />
+                    </div>
+                    <p className="mt-1 text-sm text-ink/55">{host.email}</p>
+                  </div>
+                  <p className="text-xs text-ink/40">Added {when(host.createdAt)}</p>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {host.listings.length === 0 ? (
+                    <span className="text-xs text-ink/45">No listings attached yet</span>
+                  ) : (
+                    host.listings.map((listing) => (
+                      <Link
+                        key={listing.listingId}
+                        to={`/stays/${listing.listingId}`}
+                        className="chip bg-shell text-ink/70 hover:text-ink"
+                      >
+                        {listing.listingName}
+                      </Link>
+                    ))
+                  )}
+                </div>
+
+                {host.inviteUrl && (
+                  <CopyLink
+                    url={invitationLink(host.invitePath, host.inviteUrl)}
+                  />
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void reinvite(host.id)}
+                    disabled={busy === `host-${host.id}`}
+                    className="rounded-full border border-ink/15 px-4 py-2 text-xs font-bold text-ink/60 transition hover:border-ink/35 disabled:cursor-wait"
+                  >
+                    Send a new invitation
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleHost(host)}
+                    disabled={busy === `host-${host.id}`}
+                    className={cn(
+                      'rounded-full px-4 py-2 text-xs font-bold transition disabled:cursor-wait',
+                      host.status === 'suspended'
+                        ? 'bg-palm text-white hover:bg-ink'
+                        : 'border border-coral/40 text-coral hover:bg-coral/10',
+                    )}
+                  >
+                    {host.status === 'suspended' ? 'Restore access' : 'Suspend access'}
+                  </button>
+                </div>
+
+                <p className="mt-3 text-xs leading-relaxed text-ink/40">
+                  {host.status === 'invited'
+                    ? 'They have not set a password yet. The invitation link works once.'
+                    : host.status === 'suspended'
+                      ? 'Suspended accounts cannot sign in, and their sessions are ended immediately.'
+                      : 'They can publish the rate and copy for these listings and answer booking requests.'}
                 </p>
               </article>
             ))

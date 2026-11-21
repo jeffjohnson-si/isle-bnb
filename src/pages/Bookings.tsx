@@ -12,6 +12,22 @@ import type { Booking } from '../types'
 
 type Row = Booking & { status: string }
 
+const statusCopy: Record<string, string> = {
+  pending: 'Awaiting host confirmation',
+  confirmed: 'Confirmed by the property',
+  declined: 'Declined by the property',
+  cancelled: 'Cancelled',
+}
+
+const statusTone = (status: string) =>
+  status === 'confirmed'
+    ? 'bg-palm/10 text-palm'
+    : status === 'declined'
+      ? 'bg-coral/10 text-coral'
+      : status === 'cancelled'
+        ? 'bg-ink/10 text-ink/50'
+        : 'bg-sun/30 text-ink/70'
+
 export function BookingsPage() {
   usePageTitle('My bookings · Isle BnB')
 
@@ -102,7 +118,7 @@ export function BookingsPage() {
           {bookings.map((booking) => {
             const listing = listingById(booking.listingId)
             const country = countryByCode(booking.country)
-            const cancelled = booking.status === 'cancelled'
+            const closed = booking.status === 'cancelled' || booking.status === 'declined'
             return (
               <article
                 key={booking.reference}
@@ -125,13 +141,9 @@ export function BookingsPage() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                          cancelled
-                            ? 'bg-ink/10 text-ink/50'
-                            : 'bg-sun/30 text-ink/70'
-                        }`}
+                        className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusTone(booking.status)}`}
                       >
-                        {cancelled ? 'Cancelled' : 'Awaiting host confirmation'}
+                        {statusCopy[booking.status] ?? 'Awaiting host confirmation'}
                       </span>
                       <span className="text-xs font-semibold text-ink/40">
                         Ref {booking.reference}
@@ -166,7 +178,7 @@ export function BookingsPage() {
                         ? formatMoney(booking.total, booking.currency)
                         : 'Rate on arrival'}
                     </p>
-                    {!cancelled && (
+                    {!closed && (
                       <button
                         type="button"
                         onClick={() => void cancel(booking.reference)}

@@ -307,6 +307,7 @@ async function runChecks(browser) {
   step('claim')
   let claimReference = null
   let claimedListingId = null
+  let hostId = null
   if (firstStay) {
     await desktop.goto(`${BASE}/${firstStay.replace(/^\//, '')}`, {
       waitUntil: 'networkidle2',
@@ -383,6 +384,19 @@ async function runChecks(browser) {
         throw new Error(`listing ${claimedListingId} was not marked owner-managed`)
       }
 
+      // Verifying must leave an invited account in the Host accounts tab.
+      await desktop.evaluate(() => {
+        const tab = [...document.querySelectorAll('button')].find((button) =>
+          button.textContent?.startsWith('Host accounts'),
+        )
+        if (!tab) throw new Error('host accounts tab missing')
+        tab.click()
+      })
+      await desktop.waitForSelector('text/Send a new invitation', { timeout: 4000 })
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      await shot(desktop, 'd-admin-hosts.png')
+
+
       await desktop.goto(`${BASE}/${firstStay.replace(/^\//, '')}`, {
         waitUntil: 'networkidle2',
       })
@@ -390,17 +404,95 @@ async function runChecks(browser) {
       const claimLinkGone = await desktop.$('main a[href*="#/claim/"]')
       if (claimLinkGone) throw new Error('verified listing still offers "Claim this listing"')
       await shot(desktop, 'd-listing-managed.png')
+
+      // ---- host onboarding -------------------------------------------------
+      step('host')
+      const hostList = await fetch(`${API}/api/admin/hosts`, {
+        headers: { 'x-admin-token': ADMIN_TOKEN },
+      }).then((res) => res.json())
+      const hostAccount = hostList.hosts.find((row) => row.email === 'owner@example.com')
+      if (!hostAccount) throw new Error('verifying the claim did not create a host account')
+      hostId = hostAccount.id
+      if (!hostAccount.listings.some((row) => row.listingId === claimedListingId)) {
+        throw new Error('the new host account has no listing attached')
+      }
+      if (!hostAccount.inviteUrl) throw new Error('no invitation link was issued')
+
+      // Follow the emailed link (rebuilt against this origin, not SITE_URL).
+      const inviteToken = hostAccount.inviteUrl.split('token=')[1]
+      await desktop.goto(`${BASE}/#/host/activate?token=${inviteToken}`, {
+        waitUntil: 'networkidle2',
+      })
+      await desktop.waitForSelector('text/Set your password', { timeout: 4000 })
+      await shot(desktop, 'd-host-activate.png')
+
+      await setValue(desktop, '#hostName', 'Test Owner')
+      await setValue(desktop, '#hostNewPassword', 'islandstay2026')
+      await setValue(desktop, '#hostConfirm', 'islandstay2026')
+      await desktop.click('form button[type="submit"]')
+      await desktop.waitForSelector('text/Booking requests', { timeout: 8000 })
+      await shot(desktop, 'd-host-dashboard.png')
+
+      if (bookingVerified) {
+        const seesBooking = await desktop.evaluate(() =>
+          document.body.innerText.includes('Test Traveller'),
+        )
+        if (!seesBooking) throw new Error('host dashboard does not show the booking request')
+      }
+
+      // Publish a rate, then check a visitor sees it.
+      await setValue(desktop, '#hostRate', '875')
+      await desktop.click('form button[type="submit"]')
+      await desktop.waitForSelector('text/Published — visitors see this', { timeout: 6000 })
+
+      await desktop.goto(`${BASE}/${firstStay.replace(/^\//, '')}`, {
+        waitUntil: 'networkidle2',
+      })
+      await desktop.waitForSelector('text/875', { timeout: 6000 })
+      await shot(desktop, 'd-listing-owner-rate.png')
+
+      // Answer the booking; the guest must see the property's answer.
+      if (bookingVerified) {
+        await desktop.goto(`${BASE}/#/host`, { waitUntil: 'networkidle2' })
+        await desktop.waitForSelector('text/Booking requests', { timeout: 6000 })
+        await desktop.evaluate(() => {
+          const button = [...document.querySelectorAll('button')].find(
+            (el) => el.textContent?.trim() === 'Confirm',
+          )
+          if (!button) throw new Error('confirm button missing on the host dashboard')
+          button.click()
+        })
+        await desktop.waitForSelector('text/Confirmed', { timeout: 6000 })
+
+        await desktop.goto(`${BASE}/#/bookings`, { waitUntil: 'networkidle2' })
+        await desktop.waitForSelector('text/Confirmed by the property', { timeout: 6000 })
+        await shot(desktop, 'd-bookings-confirmed.png')
+      }
+
+      // Sign the test host out before the account is deleted, so the mobile pass
+      // does not fire a dashboard request with a dead token.
+      await desktop.evaluate(() => window.localStorage.removeItem('islebnb.hosttoken.v1'))
     } finally {
       // Never leave the catalogue claiming a real property after a failed run.
       await fetch(`${API}/api/admin/claims/${encodeURIComponent(claimReference)}`, {
         method: 'DELETE',
         headers: { 'x-admin-token': ADMIN_TOKEN },
       }).catch(() => {})
+      if (hostId) {
+        await fetch(`${API}/api/admin/hosts/${hostId}`, {
+          method: 'DELETE',
+          headers: { 'x-admin-token': ADMIN_TOKEN },
+        }).catch(() => {})
+      }
     }
 
     const leftovers = await fetch(`${API}/api/claims/verified`).then((res) => res.json())
     if (leftovers.listingIds.includes(claimedListingId)) {
       throw new Error(`test claim ${claimReference} was not removed`)
+    }
+    const published = await fetch(`${API}/api/listings/overrides`).then((res) => res.json())
+    if (published.overrides.some((row) => row.listingId === claimedListingId)) {
+      throw new Error('the test rate was left published on a real listing')
     }
   } else {
     console.log('  no stays in the catalogue — skipping the claim and admin checks')
@@ -452,6 +544,10 @@ async function runChecks(browser) {
   await mobile.goto(`${BASE}/#/admin`, { waitUntil: 'networkidle2' })
   await shot(mobile, 'm-admin.png')
 
+  await mobile.goto(`${BASE}/#/host/login`, { waitUntil: 'networkidle2' })
+  await shot(mobile, 'm-host-login.png')
+
+
   await mobile.goto(`${BASE}/#/bookings`, { waitUntil: 'networkidle2' })
   await shot(mobile, 'm-bookings.png')
 
@@ -461,7 +557,7 @@ async function runChecks(browser) {
   } else {
     console.log(
       bookingVerified
-        ? 'OK — screenshots in .shots/, booking + host + claim flows and admin dashboard verified, no console errors'
+        ? 'OK — screenshots in .shots/, booking + host + claim + host dashboard flows verified, no console errors'
         : 'OK — screenshots in .shots/, host flow verified (empty catalogue, booking skipped), no console errors',
     )
   }

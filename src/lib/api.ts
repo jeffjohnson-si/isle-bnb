@@ -1,4 +1,5 @@
 import type { Booking } from '../types'
+import type { ListingOverride } from '../data/listings'
 
 const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 const apiUrl = (path: string) => `${base}${path}`
@@ -273,11 +274,17 @@ export async function setClaimStatus(
   reference: string,
   status: 'pending' | 'verified' | 'rejected',
 ) {
-  const data = await request<{ claim: AdminClaim }>(
-    `/api/admin/claims/${encodeURIComponent(reference)}`,
-    { method: 'PATCH', headers: admin(token), body: JSON.stringify({ status }) },
-  )
-  return data.claim
+  const data = await request<{
+    claim: AdminClaim
+    host: HostIdentity | null
+    inviteUrl: string | null
+    invitePath: string | null
+  }>(`/api/admin/claims/${encodeURIComponent(reference)}`, {
+    method: 'PATCH',
+    headers: admin(token),
+    body: JSON.stringify({ status }),
+  })
+  return data
 }
 
 export async function setApplicationStatus(
@@ -290,4 +297,130 @@ export async function setApplicationStatus(
     { method: 'PATCH', headers: admin(token), body: JSON.stringify({ status }) },
   )
   return data.application
+}
+
+/* ── owner-published listing content ────────────────────────────────────── */
+
+export async function fetchListingOverrides() {
+  const data = await request<{ overrides: ListingOverride[] }>('/api/listings/overrides')
+  return data.overrides
+}
+
+/* ── host accounts ──────────────────────────────────────────────────────── */
+
+export interface HostIdentity {
+  id: number
+  name: string | null
+  email: string
+  status: 'invited' | 'active' | 'suspended'
+}
+
+export interface HostListingState {
+  listingId: string
+  listingName: string
+  grantedAt: string
+  override: ListingOverride | null
+  bookings: AdminBooking[]
+}
+
+export interface HostOverview {
+  host: HostIdentity
+  listings: HostListingState[]
+}
+
+const asHost = (token: string) => ({ 'x-host-token': token })
+
+export async function loginHost(email: string, password: string) {
+  return request<{ token: string; expiresAt: string; host: HostIdentity }>(
+    '/api/host/login',
+    { method: 'POST', body: JSON.stringify({ email, password }) },
+  )
+}
+
+export async function activateHost(token: string, name: string, password: string) {
+  return request<{ token: string; expiresAt: string; host: HostIdentity }>(
+    '/api/host/activate',
+    { method: 'POST', body: JSON.stringify({ token, name, password }) },
+  )
+}
+
+export async function logoutHost(token: string) {
+  await request('/api/host/logout', { method: 'POST', headers: asHost(token) })
+}
+
+export async function fetchHostOverview(token: string) {
+  return request<HostOverview>('/api/host/dashboard', { headers: asHost(token) })
+}
+
+export interface ListingOverrideInput {
+  price: number
+  summary: string
+  description: string
+  guests: number
+  bedrooms: number
+  beds: number
+  baths: number
+  amenities: string[]
+}
+
+export async function saveListingOverride(
+  token: string,
+  listingId: string,
+  input: ListingOverrideInput,
+) {
+  const data = await request<{ override: ListingOverride }>(
+    `/api/host/listings/${encodeURIComponent(listingId)}`,
+    { method: 'PATCH', headers: asHost(token), body: JSON.stringify(input) },
+  )
+  return data.override
+}
+
+export async function setHostBookingStatus(
+  token: string,
+  reference: string,
+  status: 'pending' | 'confirmed' | 'declined',
+) {
+  const data = await request<{ booking: AdminBooking }>(
+    `/api/host/bookings/${encodeURIComponent(reference)}`,
+    { method: 'PATCH', headers: asHost(token), body: JSON.stringify({ status }) },
+  )
+  return data.booking
+}
+
+/* ── admin: host accounts ───────────────────────────────────────────────── */
+
+export interface AdminHost extends HostIdentity {
+  createdAt: string
+  listings: { listingId: string; listingName: string; grantedAt: string }[]
+  inviteUrl: string | null
+  /** Same link without an origin: resolved against whoever is viewing. */
+  invitePath: string | null
+}
+
+export async function fetchAdminHosts(token: string) {
+  const data = await request<{ hosts: AdminHost[] }>('/api/admin/hosts', {
+    headers: admin(token),
+  })
+  return data.hosts
+}
+
+export async function reinviteHost(token: string, id: number) {
+  const data = await request<{ host: HostIdentity; inviteUrl: string; invitePath: string }>(
+    `/api/admin/hosts/${id}/reinvite`,
+    { method: 'POST', headers: admin(token) },
+  )
+  return data
+}
+
+export async function setHostStatus(
+  token: string,
+  id: number,
+  status: 'active' | 'suspended',
+) {
+  const data = await request<{ host: HostIdentity }>(`/api/admin/hosts/${id}`, {
+    method: 'PATCH',
+    headers: admin(token),
+    body: JSON.stringify({ status }),
+  })
+  return data.host
 }

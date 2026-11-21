@@ -114,6 +114,14 @@ export function Footer() {
                 </Link>
               </li>
               <li>
+                <Link
+                  to="/host/login"
+                  className="text-sand/80 transition hover:text-sun"
+                >
+                  Host sign in
+                </Link>
+              </li>
+              <li>
                 <a
                   href="mailto:hosts@islebnb.com"
                   className="text-sand/80 transition hover:text-sun"

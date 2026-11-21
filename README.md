@@ -41,7 +41,9 @@ Each area is its own page — the landing screen is the hero and search only.
 - `/saved` — wishlist of saved stays
 - `/list-your-place` — host onboarding form and host standards
 - `/claim/:id` — a property owner claims a listing we built from public information
-- `/admin` — team dashboard for applications, claims and bookings (token-gated)
+- `/host/login` · `/host/activate` · `/host` — host sign-in, password setup, and the
+  owner's own dashboard for their listings and booking requests
+- `/admin` — team dashboard for applications, claims, hosts and bookings (token-gated)
 
 **Booking requests** collect dates, guests and contact details, show a night-by-night
 total and a reference (`IB-7KQ4M9`), and never ask for a card. Requests, applications
@@ -63,9 +65,17 @@ Data lives in `data/islebnb.db` (git-ignored).
 | `POST /api/applications` | Create a host application |
 | `POST /api/claims` | Claim an existing listing (`CLAIM-XXXXXX`) |
 | `GET /api/claims/verified` | Listing ids verified to an owner |
-| `GET /api/admin/bookings` · `/applications` · `/claims` | Admin lists (requires `x-admin-token`) |
+| `GET /api/listings/overrides` | Rates and copy published by owners (public) |
+| `POST /api/host/activate` | Set a password from an invitation, returns a session |
+| `POST /api/host/login` · `/logout` | Email + password sessions (`x-host-token`) |
+| `GET /api/host/dashboard` | The owner's listings, edits and booking requests |
+| `PATCH /api/host/listings/:id` | Publish rate, summary, description, rooms, amenities |
+| `PATCH /api/host/bookings/:reference` | Confirm or decline a request |
+| `GET /api/admin/bookings` · `/applications` · `/claims` · `/hosts` | Admin lists (requires `x-admin-token`) |
 | `PATCH /api/admin/applications/:reference` | Set status `pending` / `approved` / `rejected` |
 | `PATCH /api/admin/claims/:reference` | Set status `pending` / `verified` / `rejected` |
+| `POST /api/admin/hosts/:id/reinvite` | New invitation link, ends existing sessions |
+| `PATCH` · `DELETE /api/admin/hosts/:id` | Suspend/restore an account, or remove it |
 
 Environment variables (see `.env.example`): `PORT`, `ADMIN_TOKEN`, `ALLOWED_ORIGIN`,
 `DATA_DIR`, `BREVO_API_KEY`, `MAIL_FROM`, `OPS_INBOX`, `SITE_URL`, and `VITE_API_BASE` for
@@ -77,8 +87,19 @@ application and claim emails the person who submitted it, plus a copy to `OPS_IN
 that is set. Without `BREVO_API_KEY` it logs each message to the console instead — a
 delivery failure never fails the booking that caused it.
 
-**Still missing:** host accounts, room/rate editing from a verified claim, reviews, SMS or
-WhatsApp delivery, and payment (deliberately out of v1).
+**Host accounts.** Verifying a claim is what creates an owner account: the API links that
+listing to the claimant's email, issues a one-time invitation, and emails it. The owner
+sets a password at `/host/activate` and from then on manages only their own listings —
+rates, copy, rooms, amenities — and replies to booking requests by confirming or
+declining them. Their edits are stored in `listing_overrides` and applied over the seed
+catalogue at start-up, so `src/data/listings.ts` stays the source of names, photos and
+location while the owner owns the commercial details. Passwords are hashed with scrypt;
+sessions are opaque tokens in `host_sessions` and can be ended from the team dashboard.
+`SITE_URL` must be the public address in production: it is used for the invitation links.
+
+**Still missing:** room types as separate bookable units, an availability calendar, photo
+uploads (owners send photographs to the team today), reviews, SMS/WhatsApp delivery, and
+payment (deliberately out of v1).
 
 ## Project shape
 

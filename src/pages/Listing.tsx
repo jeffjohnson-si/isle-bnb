@@ -5,8 +5,8 @@ import { BookingCard } from '../components/BookingCard'
 import { ListingCard } from '../components/ListingCard'
 import { NotFoundPage } from './NotFound'
 import { countryByCode } from '../data/countries'
-import { listingById, listings } from '../data/listings'
-import { fetchVerifiedClaims } from '../lib/api'
+import { applyListingOverrides, listingById, listings } from '../data/listings'
+import { fetchListingOverrides, fetchVerifiedClaims } from '../lib/api'
 import { approxUsd, formatMoney } from '../lib/money'
 import { isSaved, toggleSaved } from '../lib/storage'
 import { listingLocation, listingLocality } from '../lib/location'
@@ -30,6 +30,7 @@ export function ListingPage() {
   const [saved, setSaved] = useState(() => (listing ? isSaved(listing.id) : false))
   const [copied, setCopied] = useState(false)
   const [managedByOwner, setManagedByOwner] = useState(false)
+  const [, refresh] = useState(0)
 
   useEffect(() => {
     const current = listing
@@ -42,6 +43,23 @@ export function ListingPage() {
       active = false
     }
   }, [listing?.id])
+
+  /**
+   * A host may have published a rate since the app started. Re-read the owner's
+   * edits when this page opens so the price shown is never older than the visit.
+   */
+  useEffect(() => {
+    let active = true
+    void fetchListingOverrides()
+      .then((overrides) => {
+        if (!active) return
+        if (applyListingOverrides(overrides) > 0) refresh((count) => count + 1)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [id])
 
   usePageTitle(listing ? `${listing.name} · Isle BnB` : 'Stay not found · Isle BnB')
 

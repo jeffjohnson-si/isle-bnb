@@ -171,3 +171,37 @@ export function claimEmails(claim) {
     },
   ].filter(Boolean)
 }
+
+/**
+ * Sent when the team verifies a claim: the owner sets a password and can then
+ * publish rates, copy and rooms for their property.
+ */
+export function hostInviteEmails(host, claim) {
+  const link = `${SITE_URL.replace(/\/$/, '')}/#/host/activate?token=${host.invite_token}`
+  const listingName = claim.listing_name ?? 'your property'
+
+  return [
+    {
+      to: host.email,
+      subject: `${listingName} is yours to manage on Isle BnB`,
+      text: `Hello ${host.name || 'there'}. We have verified that you look after ${listingName}, so the listing is now yours.\n\nSet your password here (the link is single use):\n${link}\n\nOnce you are in you can publish your nightly rate, update the description and see booking requests. Guests still pay you on arrival — Isle BnB takes no commission and no card details.`,
+      html: layout(
+        `<h1 style="font-size:20px;margin:0 0 12px">${listingName} is yours to manage</h1>
+         <p style="font-size:14px;line-height:1.6">Hello ${host.name || 'there'}. We have verified that you look after <strong>${listingName}</strong>, so the listing is now yours.</p>
+         <p style="margin:18px 0"><a href="${link}" style="background:#0b3f42;color:#faf6ef;padding:12px 20px;border-radius:999px;text-decoration:none;font-size:14px;font-weight:600">Set your password</a></p>
+         <p style="font-size:13px;line-height:1.6;color:#07262a99">This link can be used once. You can then publish your rate, update the description and see booking requests. Guests pay you on arrival — no commission, no card details.</p>
+         <p style="font-size:12px;color:#07262a66;word-break:break-all">${link}</p>`,
+      ),
+    },
+    OPS_INBOX && {
+      to: OPS_INBOX,
+      subject: `Host access granted — ${listingName} (${host.email})`,
+      text: `Host access granted for ${listingName}.\n\n${host.name ?? ''} <${host.email}>\nInvitation: ${link}`,
+      html: layout(
+        `<h1 style="font-size:20px;margin:0 0 12px">Host access granted</h1>
+         <p style="font-size:14px;line-height:1.6"><strong>${listingName}</strong> is now managed by ${host.name ?? host.email} (${host.email}).</p>
+         <p style="font-size:12px;color:#07262a66;word-break:break-all">${link}</p>`,
+      ),
+    },
+  ].filter(Boolean)
+}

@@ -2,28 +2,12 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icons'
 import { countries } from '../data/countries'
+import { amenityChoices } from '../data/amenities'
 import { stayTypes } from '../data/listings'
 import { createApplication } from '../lib/api'
 import { cn } from '../lib/utils'
 import { usePageTitle } from '../lib/usePageTitle'
 import type { HostApplication, StayType } from '../types'
-
-const amenityChoices = [
-  'Air conditioning',
-  'Wi-Fi',
-  'Breakfast included',
-  'Pool',
-  'Beachfront',
-  'Bar & restaurant',
-  'Kitchen',
-  'Airport pickup',
-  'Boat transfer',
-  'Free parking',
-  'Family friendly',
-  'Generator backup',
-  'Hot water',
-  'Snorkelling gear',
-]
 
 type Errors = Record<string, string>
 
