@@ -292,11 +292,17 @@ export async function setApplicationStatus(
   reference: string,
   status: 'pending' | 'approved' | 'rejected',
 ) {
-  const data = await request<{ application: AdminApplication }>(
-    `/api/admin/applications/${encodeURIComponent(reference)}`,
-    { method: 'PATCH', headers: admin(token), body: JSON.stringify({ status }) },
-  )
-  return data.application
+  const data = await request<{
+    application: AdminApplication
+    host: HostIdentity | null
+    inviteUrl: string | null
+    invitePath: string | null
+  }>(`/api/admin/applications/${encodeURIComponent(reference)}`, {
+    method: 'PATCH',
+    headers: admin(token),
+    body: JSON.stringify({ status }),
+  })
+  return data
 }
 
 /* ── owner-published listing content ────────────────────────────────────── */

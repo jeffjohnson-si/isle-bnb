@@ -390,6 +390,22 @@ function grantHostAccess(claim) {
   return getHost(host.id)
 }
 
+/**
+ * An approved applicant gets an account but no listing yet — their dashboard
+ * opens on "Add a listing", where they add the details and photos themselves.
+ */
+function grantApplicantAccess(application) {
+  const existing = findHostByEmail(application.email)
+  const host =
+    existing ??
+    insertHost({
+      email: application.email,
+      name: application.contact_name,
+      inviteToken: inviteToken(),
+    })
+  return { host: getHost(host.id), created: !existing }
+}
+
 /* ── photos ────────────────────────────────────────────────────────────────
  * Owners upload already-compressed images from the browser (canvas → WebP), so
  * the server only has to check what it was given and keep it on disk. The bytes
@@ -1197,9 +1213,39 @@ const server = createServer(async (request, response) => {
       if (!['pending', 'approved', 'rejected'].includes(status)) {
         return json(response, 400, { error: 'Invalid status' }, cors)
       }
+      const before = listApplications().find((row) => row.reference === reference)
       const updated = updateApplicationStatus(reference, status)
       if (!updated) return json(response, 404, { error: 'Not found' }, cors)
-      return json(response, 200, { application: updated }, cors)
+
+      // Approving an applicant is what gives them a dashboard. They start with
+      // no listings, so the first thing they see is "Add a listing".
+      let hostAccount = null
+      if (status === 'approved') {
+        const granted = grantApplicantAccess(updated)
+        hostAccount = granted.host
+        if (granted.created && before?.status !== 'approved') {
+          console.log(`host invite ${hostAccount.email} — ${inviteUrl(hostAccount.invite_token)}`)
+          for (const message of hostInviteEmails(hostAccount, {
+            listing_name: updated.property_name,
+          })) {
+            await sendMail(message)
+          }
+        }
+      }
+
+      return json(
+        response,
+        200,
+        {
+          application: updated,
+          host: hostAccount ? publicHost(hostAccount) : null,
+          inviteUrl:
+            hostAccount?.invite_token != null ? inviteUrl(hostAccount.invite_token) : null,
+          invitePath:
+            hostAccount?.invite_token != null ? invitePath(hostAccount.invite_token) : null,
+        },
+        cors,
+      )
     }
 
     return json(response, 404, { error: 'Not found' }, cors)

@@ -151,7 +151,8 @@ export function ListPropertyPage() {
           <p className="mx-auto mt-3 max-w-lg text-[15px] leading-relaxed text-ink/60">
             Thanks {submitted.contactName.split(' ')[0]} — {submitted.propertyName} is in
             our onboarding queue. Our team will call or email within two business days to
-            verify the property and get your photos online.
+            verify the property. Once it is approved you get a dashboard invitation, and
+            you add your photos and publish your rate there yourself.
           </p>
 
           <div className="mx-auto mt-6 max-w-sm rounded-2xl bg-sand px-5 py-4 text-left text-sm">
@@ -432,8 +433,8 @@ export function ListPropertyPage() {
                   </p>
                 )}
                 <p className="mt-2 text-xs text-ink/45">
-                  Photos are collected by our team during onboarding — no upload needed
-                  yet.
+                  Photos are added in your host dashboard once we set your account up —
+                  you can upload them straight from your phone there.
                 </p>
               </div>
             </fieldset>
@@ -558,7 +559,7 @@ export function ListPropertyPage() {
               </li>
               <li className="flex gap-2.5">
                 <Icon name="mail" size={16} className="mt-0.5 shrink-0 text-aqua" />
-                Booking requests by email and phone — no dashboard to learn
+                A simple dashboard for your rates, photos and booking requests
               </li>
               <li className="flex gap-2.5">
                 <Icon name="wallet" size={16} className="mt-0.5 shrink-0 text-aqua" />

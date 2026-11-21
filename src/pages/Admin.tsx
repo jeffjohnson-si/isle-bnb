@@ -191,10 +191,23 @@ export function AdminPage() {
     setBusy(reference)
     setError('')
     try {
-      const updated = await setApplicationStatus(token, reference, status)
+      const result = await setApplicationStatus(token, reference, status)
       setApplications((rows) =>
-        rows.map((row) => (row.reference === reference ? updated : row)),
+        rows.map((row) => (row.reference === reference ? result.application : row)),
       )
+      if (result.host) {
+        // Approving gives the applicant a dashboard; show the invitation link so
+        // it can be handed over even while email is log-only.
+        setHosts(await fetchAdminHosts(token))
+        setInvite(
+          result.invitePath || result.inviteUrl
+            ? {
+                email: result.host.email,
+                url: invitationLink(result.invitePath, result.inviteUrl),
+              }
+            : null,
+        )
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not update the application.')
     } finally {

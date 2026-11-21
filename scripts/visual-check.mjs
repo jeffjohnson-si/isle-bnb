@@ -303,6 +303,30 @@ async function runChecks(browser) {
     throw new Error(`application ${hostReference} was not stored on the server`)
   }
 
+  // Approving an applicant must give them a dashboard even though they have no
+  // listing yet — they add it (with photos) themselves.
+  const approval = await fetch(`${API}/api/admin/applications/${hostReference}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
+    body: JSON.stringify({ status: 'approved' }),
+  }).then((res) => res.json())
+  if (!approval.host?.email) throw new Error('approving an application created no host account')
+  if (!approval.invitePath) throw new Error('approved applicant got no invitation link')
+
+  const applicantHosts = await fetch(`${API}/api/admin/hosts`, {
+    headers: { 'x-admin-token': ADMIN_TOKEN },
+  }).then((res) => res.json())
+  const applicant = applicantHosts.hosts.find((row) => row.email === 'host@example.com')
+  if (!applicant) throw new Error('approved applicant is missing from the host accounts list')
+  if (applicant.listings.length !== 0) {
+    throw new Error('an approved applicant should start with no listings')
+  }
+  await fetch(`${API}/api/admin/hosts/${applicant.id}`, {
+    method: 'DELETE',
+    headers: { 'x-admin-token': ADMIN_TOKEN },
+  })
+
+
   // ---- claim flow ----------------------------------------------------------
   step('claim')
   let claimReference = null

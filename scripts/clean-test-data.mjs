@@ -19,9 +19,12 @@ db.prepare(
   `DELETE FROM bookings WHERE guest_email IN ('test@example.com', 'api@test.com', 'ui@test.com', 'ui2@test.com')`,
 ).run()
 db.prepare(
-  `DELETE FROM applications WHERE email IN ('host@example.com', 'host-ui@test.com')`,
+  `DELETE FROM applications WHERE email IN ('host@example.com', 'host-ui@test.com', 'applicant@example.com')`,
 ).run()
 db.prepare(`DELETE FROM claims WHERE email = 'owner@example.com'`).run()
+db.prepare(
+  `DELETE FROM host_accounts WHERE email IN ('applicant@example.com', 'probe@example.com', 'probe2@example.com', 'dbg@example.com')`,
+).run()
 
 // Uploaded photos nothing points at any more.
 const referenced = new Set()
