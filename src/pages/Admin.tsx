@@ -758,13 +758,16 @@ export function AdminPage() {
                   {row.content.description}
                 </p>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap items-center gap-2">
                   {row.status !== 'live' && (
                     <button
                       type="button"
                       onClick={() => void reviewListing(row.listingId, 'live')}
-                      disabled={busy === `listing-${row.listingId}`}
-                      className="rounded-full bg-palm px-4 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:cursor-wait"
+                      disabled={
+                        busy === `listing-${row.listingId}` ||
+                        (row.content.images?.length ?? 0) === 0
+                      }
+                      className="rounded-full bg-palm px-4 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Approve and publish
                     </button>
@@ -798,6 +801,13 @@ export function AdminPage() {
                     </button>
                   )}
                 </div>
+
+                {(row.content.images?.length ?? 0) === 0 && row.status !== 'live' && (
+                  <p className="mt-2 text-xs leading-relaxed text-ink/40">
+                    Waiting for the owner to add photos — it cannot be published before
+                    then.
+                  </p>
+                )}
               </article>
             ))
           ))}

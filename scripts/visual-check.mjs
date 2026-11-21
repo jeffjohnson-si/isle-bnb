@@ -336,6 +336,12 @@ async function runChecks(browser) {
   if ((draft.content.images ?? []).length !== 0) {
     throw new Error('a draft should start without photos')
   }
+  const premature = await fetch(`${API}/api/admin/listings/${draft.listingId}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
+    body: JSON.stringify({ status: 'live' }),
+  })
+  if (premature.ok) throw new Error('a listing with no photos was published')
   await fetch(`${API}/api/admin/hosts/${applicant.id}`, {
     method: 'DELETE',
     headers: { 'x-admin-token': ADMIN_TOKEN },

@@ -1134,6 +1134,17 @@ const server = createServer(async (request, response) => {
       if (!['pending', 'live', 'rejected'].includes(status)) {
         return json(response, 400, { error: 'Invalid status' }, cors)
       }
+      if (status === 'live' && parseList(existing.images).length === 0) {
+        return json(
+          response,
+          400,
+          {
+            error:
+              'This listing has no photos yet — ask the owner to add at least one before publishing.',
+          },
+          cors,
+        )
+      }
       const updated = setCreatedListingStatus(listingId, status)
       console.log(`listing ${listingId} marked ${status}`)
       if (status === 'live' && existing.status !== 'live') {
