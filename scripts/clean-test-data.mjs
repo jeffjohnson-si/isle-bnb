@@ -34,9 +34,11 @@ db.prepare(
   `DELETE FROM host_listings WHERE host_id NOT IN (SELECT id FROM host_accounts)`,
 ).run()
 
-// Uploaded photos nothing points at any more.
+// Uploaded photos nothing points at any more. Applications count too: their
+// photos are the submission the team reviews, so they must survive until the
+// application is gone.
 const referenced = new Set()
-for (const table of ['created_listings', 'listing_overrides']) {
+for (const table of ['created_listings', 'listing_overrides', 'applications']) {
   for (const row of db.prepare(`SELECT images FROM ${table} WHERE images IS NOT NULL`).all()) {
     try {
       for (const url of JSON.parse(row.images)) referenced.add(path.basename(url))

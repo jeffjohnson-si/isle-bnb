@@ -116,7 +116,9 @@ a listing page opens, so a rate is never older than the visit.
 **Photos.** Owners upload from the dashboard. The browser downsizes to 1600px, re-encodes
 as WebP and strips EXIF before sending; the API checks the magic bytes, writes the file to
 `data/uploads/` and serves it back from `/api/uploads/<file>`. There is no image service
-and no dependency to install. Uploaded files are git-ignored with the rest of `data/`.
+and no dependency to install. Tap any thumbnail to see it full size; the first photo is the
+card image and any of them can be promoted to it. Uploaded files are git-ignored with the
+rest of `data/`.
 
 **Throttling.** Writes are rate-limited per IP in three buckets: 40/hour anonymous (booking
 requests, applications, claims), 200/hour for signed-in host work (a burst of photo uploads

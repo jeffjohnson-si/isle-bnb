@@ -558,6 +558,39 @@ async function runChecks(browser) {
         },
         { timeout: 20000 },
       )
+
+      // A second photo, so the preview and "make main" can be exercised.
+      await photoInput.uploadFile(path.resolve('public/pics/bonfire-night.webp'))
+      await desktop.waitForFunction(
+        () => document.querySelectorAll('img[alt^="Listing photo"]').length === 2,
+        { timeout: 20000 },
+      )
+      const orderBefore = await desktop.$$eval('img[alt^="Listing photo"]', (imgs) =>
+        imgs.map((img) => img.getAttribute('src')),
+      )
+
+      await desktop.click('button[aria-label="Preview photo 2"]')
+      await desktop.waitForSelector('[role="dialog"]', { timeout: 4000 })
+      await shot(desktop, 'd-photo-preview.png')
+      await desktop.evaluate(() => {
+        const button = [...document.querySelectorAll('[role="dialog"] button')].find((el) =>
+          el.textContent?.includes('Use as the main photo'),
+        )
+        if (!button) throw new Error('preview has no "use as main" action')
+        button.click()
+      })
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      const orderAfter = await desktop.$$eval('img[alt^="Listing photo"]', (imgs) =>
+        imgs.map((img) => img.getAttribute('src')),
+      )
+      if (orderAfter[0] !== orderBefore[1] || orderAfter[1] !== orderBefore[0]) {
+        throw new Error('choosing a main photo did not reorder the gallery')
+      }
+      await desktop.keyboard.press('Escape')
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      if (await desktop.$('[role="dialog"]')) {
+        throw new Error('the photo preview did not close on Escape')
+      }
       await shot(desktop, 'd-host-new.png')
 
       await desktop.click('form button[type="submit"]')
