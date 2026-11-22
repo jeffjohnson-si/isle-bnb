@@ -289,6 +289,19 @@ async function runChecks(browser) {
   await setValue(desktop, '#contactName', 'Test Host')
   await setValue(desktop, '#email', 'host@example.com')
   await setValue(desktop, '#phone', '+677 12345')
+
+  // Photos are part of the submission now; the team reviews them with it.
+  const publicPhoto = await desktop.$('input[type="file"]')
+  if (!publicPhoto) throw new Error('photo input missing on the application form')
+  await publicPhoto.uploadFile(path.resolve('public/pics/hero-pavilion.webp'))
+  await desktop.waitForFunction(
+    () => {
+      const img = document.querySelector('img[alt="Listing photo 1"]')
+      return Boolean(img?.getAttribute('src')?.startsWith('/api/uploads/'))
+    },
+    { timeout: 20000 },
+  )
+
   await desktop.click('form button[type="submit"]')
   await desktop.waitForSelector('text/Application received', { timeout: 8000 })
   await shot(desktop, 'd-host-confirmed.png')
@@ -299,12 +312,16 @@ async function runChecks(browser) {
   const adminList = await fetch(`${API}/api/admin/applications`, {
     headers: { 'x-admin-token': ADMIN_TOKEN },
   }).then((res) => res.json())
-  if (!adminList.applications.some((row) => row.reference === hostReference)) {
+  const storedApplication = adminList.applications.find((row) => row.reference === hostReference)
+  if (!storedApplication) {
     throw new Error(`application ${hostReference} was not stored on the server`)
   }
+  if (JSON.parse(storedApplication.images ?? '[]').length !== 1) {
+    throw new Error('the application photos were not saved with the submission')
+  }
 
-  // Approving an applicant must give them a dashboard with a draft built from
-  // what they already told us, so they only have to add photos.
+  // Approving is the publishing step: the listing goes live with those photos
+  // and the owner gets an account to manage it.
   const approval = await fetch(`${API}/api/admin/applications/${hostReference}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
@@ -312,36 +329,30 @@ async function runChecks(browser) {
   }).then((res) => res.json())
   if (!approval.host?.email) throw new Error('approving an application created no host account')
   if (!approval.invitePath) throw new Error('approved applicant got no invitation link')
+  if (!approval.listing) throw new Error('approval did not publish a listing')
+
+  const catalogue = await fetch(`${API}/api/listings/created`).then((res) => res.json())
+  const liveRow = catalogue.listings.find((row) => row.id === approval.listing.listingId)
+  if (!liveRow) throw new Error('the approved listing is missing from the public catalogue')
+  if (liveRow.images.length === 0) throw new Error('the approved listing has no photos')
+  if (liveRow.name !== 'Test Lagoon Lodge') {
+    throw new Error(`published listing is named "${liveRow.name}"`)
+  }
 
   const applicantHosts = await fetch(`${API}/api/admin/hosts`, {
     headers: { 'x-admin-token': ADMIN_TOKEN },
   }).then((res) => res.json())
   const applicant = applicantHosts.hosts.find((row) => row.email === 'host@example.com')
   if (!applicant) throw new Error('approved applicant is missing from the host accounts list')
-  if (applicant.listings.length !== 1) {
-    throw new Error(
-      `approved applicant has ${applicant.listings.length} listings, expected one draft`,
-    )
-  }
-  const applicantDrafts = await fetch(`${API}/api/admin/listings`, {
-    headers: { 'x-admin-token': ADMIN_TOKEN },
-  }).then((res) => res.json())
-  const draft = applicantDrafts.listings.find(
-    (row) => row.listingId === applicant.listings[0].listingId,
+
+  // The published listing must appear on the public site after approval.
+  await desktop.goto(`${BASE}/#/stays`, { waitUntil: 'networkidle2' })
+  await desktop.reload({ waitUntil: 'networkidle2' })
+  await desktop.waitForFunction(
+    () => document.body.innerText.includes('Test Lagoon Lodge'),
+    { timeout: 6000 },
   )
-  if (!draft) throw new Error('the applicant draft listing is missing')
-  if (draft.content.name !== 'Test Lagoon Lodge') {
-    throw new Error(`draft was built as "${draft.content.name}"`)
-  }
-  if ((draft.content.images ?? []).length !== 0) {
-    throw new Error('a draft should start without photos')
-  }
-  const premature = await fetch(`${API}/api/admin/listings/${draft.listingId}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
-    body: JSON.stringify({ status: 'live' }),
-  })
-  if (premature.ok) throw new Error('a listing with no photos was published')
+
   await fetch(`${API}/api/admin/hosts/${applicant.id}`, {
     method: 'DELETE',
     headers: { 'x-admin-token': ADMIN_TOKEN },

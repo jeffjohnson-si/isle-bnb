@@ -64,7 +64,8 @@ Data lives in `data/islebnb.db` (git-ignored).
 | `POST /api/bookings` | Create a booking request. Validated server-side; returns a reference |
 | `GET /api/bookings?refs=IB-A,IB-B` | Look up this device's requests |
 | `DELETE /api/bookings/:reference` | Cancel a request |
-| `POST /api/applications` | Create a host application |
+| `POST /api/applications` | Create a host application, photos included |
+| `POST /api/uploads` | Public photo upload for the application form (JPEG/PNG/WebP, 8 MB) |
 | `POST /api/claims` | Claim an existing listing (`CLAIM-XXXXXX`) |
 | `GET /api/claims/verified` | Listing ids verified to an owner |
 | `GET /api/listings/overrides` | Rates and copy published by owners (public) |
@@ -94,17 +95,17 @@ application and claim emails the person who submitted it, plus a copy to `OPS_IN
 that is set. Without `BREVO_API_KEY` it logs each message to the console instead — a
 delivery failure never fails the booking that caused it.
 
-**Host accounts.** Verifying a claim is what creates an owner account: the API links that
-listing to the claimant's email, issues a one-time invitation, and emails it. The owner
-sets a password at `/host/activate` and from then on manages only their own listings —
-rates, name, location, copy, rooms, amenities and photos — and replies to booking requests
-by confirming or declining them. From `/host/new` they can add further properties
-themselves; those start as `pending` and appear in the team's **Listing reviews** tab, so
-nothing reaches guests without a human check. The same signed-in session gates every edit,
-and the server enforces "your account, your listing" on each call. Passwords are hashed
-with scrypt; sessions are opaque tokens in `host_sessions` and can be ended from the team
-dashboard. `SITE_URL` must be the public address in production: it is used for invitation
-links.
+**Host accounts.** The public "List your place" form is the front door: the applicant
+fills in the property, the rate and the photos in one submission. Approving it in the team
+dashboard **publishes the listing** with those photos and creates the owner's account, so
+they can edit rates, photos and copy and answer booking requests from `/host` afterwards.
+They set a password from a one-time invitation link. Extra properties an owner adds later
+from `/host/new` still go through the Listing reviews queue, and no listing can be
+published without photos.
+
+Passwords are hashed with scrypt; sessions are opaque tokens in `host_sessions` and can be
+ended from the team dashboard. `SITE_URL` must be the public address in production: it is
+used for invitation links and for photos in the ops email.
 
 **Owner content.** Two stores keep the catalogue current without a deploy:
 `listing_overrides` holds edits to the seeded properties (`src/data/listings.ts` stays the

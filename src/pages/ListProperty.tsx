@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icons'
+import { PhotoManager } from '../components/PhotoManager'
 import { countries } from '../data/countries'
 import { amenityChoices } from '../data/amenities'
 import { stayTypes } from '../data/listings'
@@ -32,6 +33,7 @@ export function ListPropertyPage() {
 
   const [form, setForm] = useState(emptyForm)
   const [amenities, setAmenities] = useState<string[]>([])
+  const [images, setImages] = useState<string[]>([])
   const [errors, setErrors] = useState<Errors>({})
   const [submitted, setSubmitted] = useState<HostApplication | null>(null)
   const [sending, setSending] = useState(false)
@@ -73,6 +75,7 @@ export function ListPropertyPage() {
     if (form.phone.trim().replace(/[^\d]/g, '').length < 6) {
       next.phone = 'Enter a phone number we can reach you on'
     }
+    if (images.length === 0) next.images = 'Add at least one photo'
     return next
   }
 
@@ -121,6 +124,7 @@ export function ListPropertyPage() {
         bedrooms: application.bedrooms,
         description: application.description,
         amenities: application.amenities,
+        images,
         contactName: application.contactName,
         email: application.email,
         phone: application.phone,
@@ -149,10 +153,11 @@ export function ListPropertyPage() {
             Application received
           </h1>
           <p className="mx-auto mt-3 max-w-lg text-[15px] leading-relaxed text-ink/60">
-            Thanks {submitted.contactName.split(' ')[0]} — {submitted.propertyName} is in
-            our onboarding queue. Our team will call or email within two business days to
-            verify the property. Once it is approved you get a dashboard invitation, and
-            you add your photos and publish your rate there yourself.
+            Thanks {submitted.contactName.split(' ')[0]} — {submitted.propertyName} and
+            your {images.length} photo{images.length === 1 ? '' : 's'} are with our team.
+            We call or email within two business days to verify the property; once
+            approved it goes live on Isle BnB and you get a dashboard invitation to
+            manage your rate and booking requests.
           </p>
 
           <div className="mx-auto mt-6 max-w-sm rounded-2xl bg-sand px-5 py-4 text-left text-sm">
@@ -432,16 +437,30 @@ export function ListPropertyPage() {
                     {errors.description}
                   </p>
                 )}
-                <p className="mt-2 text-xs text-ink/45">
-                  Photos are added in your host dashboard once we set your account up —
-                  you can upload them straight from your phone there.
-                </p>
               </div>
             </fieldset>
 
             <fieldset className="card p-6">
               <legend className="float-left mb-4 w-full text-sm font-bold uppercase tracking-widest text-ink/45">
-                4 · How we reach you
+                4 · Photos
+              </legend>
+              <div className="clear-both">
+                <PhotoManager
+                  images={images}
+                  onChange={(next) => {
+                    setImages(next)
+                    setErrors((current) => ({ ...current, images: '' }))
+                  }}
+                />
+                {errors.images && (
+                  <p className="mt-2 text-xs font-semibold text-coral">{errors.images}</p>
+                )}
+              </div>
+            </fieldset>
+
+            <fieldset className="card p-6">
+              <legend className="float-left mb-4 w-full text-sm font-bold uppercase tracking-widest text-ink/45">
+                5 · How we reach you
               </legend>
               <div className="clear-both grid gap-4 sm:grid-cols-2">
                 <div>
@@ -516,14 +535,16 @@ export function ListPropertyPage() {
             <div className="flex flex-wrap items-center gap-4">
               <button
                 type="submit"
-                disabled={sending}
-                className="btn-primary disabled:cursor-wait"
+                disabled={sending || images.length === 0}
+                className="btn-primary disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {sending ? 'Submitting…' : 'Submit for review'}
                 <Icon name="arrowRight" size={16} />
               </button>
               <p className="text-xs text-ink/45">
-                No fee, no commission in v1. You can delist at any time.
+                {images.length === 0
+                  ? 'Add at least one photo to submit.'
+                  : 'No fee, no commission in v1. You can delist at any time.'}
               </p>
             </div>
           </form>

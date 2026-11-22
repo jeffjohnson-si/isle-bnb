@@ -142,8 +142,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS created_listings_status ON created_listings (status, created_at DESC);
 `)
 
-/* Columns added to listing_overrides after the first release. SQLite has no
-   "ADD COLUMN IF NOT EXISTS", so check the table first. */
+/* SQLite has no "ADD COLUMN IF NOT EXISTS", so check the table first. */
+function ensureColumn(table, column, type) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all()
+  if (!columns.some((row) => row.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+  }
+}
+
 for (const [column, type] of [
   ['name', 'TEXT'],
   ['island', 'TEXT'],
@@ -151,11 +157,12 @@ for (const [column, type] of [
   ['province', 'TEXT'],
   ['images', 'TEXT'],
 ]) {
-  const columns = db.prepare('PRAGMA table_info(listing_overrides)').all()
-  if (!columns.some((row) => row.name === column)) {
-    db.exec(`ALTER TABLE listing_overrides ADD COLUMN ${column} ${type}`)
-  }
+  ensureColumn('listing_overrides', column, type)
 }
+
+/* Applications carry their photos now: the team reviews the whole submission
+   before anything is published. */
+ensureColumn('applications', 'images', 'TEXT')
 
 const bookingColumns = [
   'reference', 'listing_id', 'listing_name', 'country', 'island', 'region',
@@ -171,7 +178,7 @@ const claimColumns = [
 const applicationColumns = [
   'reference', 'property_name', 'type', 'country', 'island', 'area', 'address',
   'nightly_rate', 'currency', 'guests', 'bedrooms', 'description', 'amenities',
-  'contact_name', 'email', 'phone', 'status', 'created_at',
+  'contact_name', 'email', 'phone', 'images', 'status', 'created_at',
 ]
 
 export function insertBooking(record) {

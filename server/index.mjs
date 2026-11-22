@@ -250,20 +250,24 @@ function validateApplication(input) {
   const contactName = text(input.contactName)
   const email = text(input.email)
   const phone = text(input.phone)
+  const images = Array.isArray(input.images) ? input.images.map(text).filter(Boolean) : []
 
   if (!propertyName) fields.propertyName = 'Missing property name'
-  if (!type) fields.type = 'Missing property type'
+  if (!STAY_TYPES.includes(type)) fields.type = 'Choose a property type'
   if (!country) fields.country = 'Missing country'
   if (!island) fields.island = 'Missing island'
   if (!area) fields.area = 'Missing area'
-  if (!Number.isFinite(nightlyRate) || nightlyRate <= 0) fields.nightlyRate = 'Invalid rate'
+  if (!Number.isFinite(nightlyRate) || nightlyRate < 0) fields.nightlyRate = 'Invalid rate'
   if (!/^[A-Z]{3}$/.test(currency)) fields.currency = 'Invalid currency'
   if (!Number.isInteger(guests) || guests < 1) fields.guests = 'Invalid guest count'
-  if (!Number.isInteger(bedrooms) || bedrooms < 1) fields.bedrooms = 'Invalid bedrooms'
+  if (!Number.isInteger(bedrooms) || bedrooms < 0) fields.bedrooms = 'Invalid bedrooms'
   if (description.length < 40) fields.description = 'Description too short'
   if (!contactName) fields.contactName = 'Missing contact name'
   if (!isEmail(email)) fields.email = 'Invalid email'
   if (phone.replace(/[^\d]/g, '').length < 6) fields.phone = 'Invalid phone number'
+  if (images.length > 8) fields.images = 'Up to 8 photos'
+  if (images.some((image) => !isAnyImage(image))) fields.images = 'One of those photos is not valid'
+  if (images.length === 0) fields.images = 'Add at least one photo'
 
   if (Object.keys(fields).length) return { fields }
 
@@ -285,6 +289,7 @@ function validateApplication(input) {
       contact_name: contactName,
       email,
       phone,
+      images: JSON.stringify(images.slice(0, 8)),
       status: 'pending',
       created_at: new Date().toISOString(),
     },
@@ -391,9 +396,9 @@ function grantHostAccess(claim) {
 }
 
 /**
- * Approving an applicant gives them an account *and* a draft listing built from
- * what they already told us — so they never type the property twice. It has no
- * photos, so it cannot go live; their dashboard asks for those first.
+ * Approving a submission is the publishing step: the listing goes live with the
+ * photos the applicant uploaded, and the account exists so they can edit and
+ * answer booking requests from then on.
  */
 function grantApplicantAccess(application) {
   const existing = findHostByEmail(application.email)
@@ -411,6 +416,7 @@ function grantApplicantAccess(application) {
   )
   if (alreadyListed) return { host: account, created: !existing, draft: null }
 
+  const images = parseList(application.images)
   const now = new Date().toISOString()
   let listingId = `host-${slugify(application.property_name)}-${randomInt(1000, 9999)}`
   while (getCreatedListing(listingId)) {
@@ -432,11 +438,12 @@ function grantApplicantAccess(application) {
     description: application.description,
     guests: application.guests,
     bedrooms: application.bedrooms,
-    beds: application.bedrooms,
+    beds: Math.max(1, application.bedrooms),
     baths: 1,
     amenities: application.amenities,
-    images: '[]',
-    status: 'pending',
+    images: JSON.stringify(images),
+    // The team has just reviewed this submission, photos included.
+    status: images.length ? 'live' : 'pending',
     created_at: now,
     updated_at: now,
   })
@@ -792,9 +799,19 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    if (request.method === 'POST' && url.pathname === '/api/host/uploads') {
-      if (!requireHost()) return
-      if (!allowWrite(ip, 'auth')) {
+    /**
+     * Photos can be uploaded before an account exists: the public application
+     * form needs them, and the team reviews the whole submission before anything
+     * is published. Anonymous uploads get the public bucket; unreferenced files
+     * are swept by scripts/clean-test-data.mjs.
+     */
+    if (
+      request.method === 'POST' &&
+      (url.pathname === '/api/host/uploads' || url.pathname === '/api/uploads')
+    ) {
+      const signedIn = Boolean(host)
+      if (url.pathname === '/api/host/uploads' && !requireHost()) return
+      if (!allowWrite(ip, signedIn ? 'auth' : 'public')) {
         return json(response, 429, { error: 'Too many uploads, try again later' }, cors)
       }
       const bytes = await readBinary(request, UPLOAD_LIMIT)
@@ -810,7 +827,7 @@ const server = createServer(async (request, response) => {
       await mkdir(UPLOAD_DIR, { recursive: true })
       const name = `${randomBytes(16).toString('hex')}.${extension}`
       await writeFile(path.join(UPLOAD_DIR, name), bytes)
-      console.log(`upload ${name} ${bytes.length}b for ${host.email}`)
+      console.log(`upload ${name} ${bytes.length}b — ${signedIn ? host.email : 'application'}`)
       return json(response, 201, { url: `/api/uploads/${name}`, bytes: bytes.length }, cors)
     }
 
@@ -1269,15 +1286,22 @@ const server = createServer(async (request, response) => {
       // Approving an applicant is what gives them a dashboard. They start with
       // no listings, so the first thing they see is "Add a listing".
       let hostAccount = null
+      let publishedListing = null
       if (status === 'approved') {
         const granted = grantApplicantAccess(updated)
         hostAccount = granted.host
+        publishedListing = granted.draft
+          ? { listingId: granted.draft.listing_id, status: granted.draft.status }
+          : null
         if (granted.created && before?.status !== 'approved') {
           console.log(`host invite ${hostAccount.email} — ${inviteUrl(hostAccount.invite_token)}`)
           for (const message of hostInviteEmails(
             hostAccount,
             { listing_name: updated.property_name },
-            { draft: Boolean(granted.draft) },
+            {
+              draft: Boolean(granted.draft) && granted.draft.status !== 'live',
+              live: granted.draft?.status === 'live',
+            },
           )) {
             await sendMail(message)
           }
@@ -1290,6 +1314,7 @@ const server = createServer(async (request, response) => {
         {
           application: updated,
           host: hostAccount ? publicHost(hostAccount) : null,
+          listing: publishedListing,
           inviteUrl:
             hostAccount?.invite_token != null ? inviteUrl(hostAccount.invite_token) : null,
           invitePath:

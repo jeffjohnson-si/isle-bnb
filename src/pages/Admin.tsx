@@ -130,6 +130,7 @@ export function AdminPage() {
   const [createdListings, setCreatedListings] = useState<AdminListing[]>([])
   const [bookings, setBookings] = useState<AdminBooking[]>([])
   const [invite, setInvite] = useState<{ email: string; url: string } | null>(null)
+  const [published, setPublished] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -195,6 +196,9 @@ export function AdminPage() {
       setApplications((rows) =>
         rows.map((row) => (row.reference === reference ? result.application : row)),
       )
+      if (result.listing) {
+        setPublished((current) => ({ ...current, [reference]: result.listing!.listingId }))
+      }
       if (result.host) {
         // Approving gives the applicant a dashboard; show the invitation link so
         // it can be handed over even while email is log-only.
@@ -501,6 +505,43 @@ export function AdminPage() {
                   </p>
                 )}
 
+                {(() => {
+                  let photos: string[] = []
+                  try {
+                    photos = JSON.parse(row.images ?? '[]')
+                  } catch {
+                    photos = []
+                  }
+                  if (photos.length === 0) {
+                    return (
+                      <p className="mt-3 rounded-xl bg-coral/5 px-3 py-2 text-xs font-semibold text-coral">
+                        No photos on this submission — ask the host for photos before
+                        approving.
+                      </p>
+                    )
+                  }
+                  return (
+                    <div className="mt-3 flex gap-2 overflow-x-auto">
+                      {photos.map((image) => (
+                        <a
+                          key={image}
+                          href={image}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0"
+                        >
+                          <img
+                            src={image}
+                            alt=""
+                            className="h-24 w-32 rounded-lg object-cover"
+                            loading="lazy"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )
+                })()}
+
                 <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
                   <a
                     href={`mailto:${row.email}`}
@@ -552,10 +593,19 @@ export function AdminPage() {
                       Back to pending
                     </button>
                   )}
+                  {published[row.reference] && (
+                    <Link
+                      to={`/stays/${published[row.reference]}`}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-palm/30 px-4 py-2 text-xs font-bold text-palm transition hover:bg-palm/5"
+                    >
+                      View public page
+                      <Icon name="arrowRight" size={14} />
+                    </Link>
+                  )}
                 </div>
                 <p className="mt-3 text-xs leading-relaxed text-ink/40">
-                  Approving creates a host account and a draft listing from these details;
-                  the owner adds photos, then it comes back for review.
+                  Approving publishes the listing with these photos and creates the host's
+                  account, so they can manage it from their dashboard.
                 </p>
               </article>
             ))

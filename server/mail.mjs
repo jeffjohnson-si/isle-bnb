@@ -123,25 +123,43 @@ export function bookingEmails(booking) {
 }
 
 export function applicationEmails(application) {
+  let photos = []
+  try {
+    photos = JSON.parse(application.images ?? '[]')
+  } catch {
+    photos = []
+  }
+  const photoLine = photos.length
+    ? `${photos.length} photo${photos.length === 1 ? '' : 's'}`
+    : 'no photos yet'
+  const absolute = photos.map((url) => `${SITE_URL.replace(/\/$/, '')}${url}`)
+
   return [
     {
       to: application.email,
       subject: `We have your application — ${application.property_name}`,
-      text: `Thanks ${application.contact_name}. We have your listing for ${application.property_name} (${application.island}). Reference ${application.reference}. Our team will review it and get back to you.`,
+      text: `Thanks ${application.contact_name}. We have your listing for ${application.property_name} (${application.island}) with ${photoLine}. Reference ${application.reference}. Our team will review it and get back to you.`,
       html: layout(
         `<h1 style="font-size:20px;margin:0 0 12px">Application received</h1>
-         <p style="font-size:14px;line-height:1.6">Thanks ${application.contact_name}. We have your listing for <strong>${application.property_name}</strong>.</p>
+         <p style="font-size:14px;line-height:1.6">Thanks ${application.contact_name}. We have your listing for <strong>${application.property_name}</strong>, ${photoLine}.</p>
          <table style="border-collapse:collapse">${row('Reference', application.reference)}${row('Island', application.island)}${row('Rate', `${application.currency} ${application.nightly_rate}`)}</table>`,
       ),
     },
     OPS_INBOX && {
       to: OPS_INBOX,
       subject: `Host application — ${application.property_name} (${application.reference})`,
-      text: `Host application.\n\n${application.property_name} (${application.type})\n${application.island} — ${application.area}\nRate ${application.currency} ${application.nightly_rate}\nContact: ${application.contact_name} ${application.email} ${application.phone}\n${application.description}`,
+      text: `Host application with ${photoLine}.\n\n${application.property_name} (${application.type})\n${application.island} — ${application.area}\nRate ${application.currency} ${application.nightly_rate}\nContact: ${application.contact_name} ${application.email} ${application.phone}\n${application.description}\n\n${absolute.join('\n')}`,
       html: layout(
         `<h1 style="font-size:20px;margin:0 0 12px">Host application</h1>
-         <table style="border-collapse:collapse">${row('Property', application.property_name)}${row('Type', application.type)}${row('Island', application.island)}${row('Rate', `${application.currency} ${application.nightly_rate}`)}${row('Reference', application.reference)}</table>
-         <p style="font-size:14px;line-height:1.6">Contact: ${application.contact_name} — ${application.email} · ${application.phone}</p>`,
+         <table style="border-collapse:collapse">${row('Property', application.property_name)}${row('Type', application.type)}${row('Island', application.island)}${row('Rate', `${application.currency} ${application.nightly_rate}`)}${row('Photos', String(photos.length))}${row('Reference', application.reference)}</table>
+         <p style="font-size:14px;line-height:1.6">Contact: ${application.contact_name} — ${application.email} · ${application.phone}</p>
+         ${absolute
+           .slice(0, 4)
+           .map(
+             (url) =>
+               `<img src="${url}" alt="" style="width:120px;height:90px;object-fit:cover;border-radius:8px;margin:4px 4px 0 0" />`,
+           )
+           .join('')}`,
       ),
     },
   ].filter(Boolean)
@@ -176,23 +194,27 @@ export function claimEmails(claim) {
  * Sent when the team verifies a claim or approves an application: the owner sets
  * a password and can then publish rates, copy and rooms for their property.
  */
-export function hostInviteEmails(host, claim, { draft = false } = {}) {
+export function hostInviteEmails(host, claim, { draft = false, live = false } = {}) {
   const link = `${SITE_URL.replace(/\/$/, '')}/#/host/activate?token=${host.invite_token}`
   const listingName = claim.listing_name ?? 'your property'
 
-  const intro = draft
-    ? `We have set up your Isle BnB account. ${listingName} is already in your dashboard with the details you sent us — add your photos and it goes to our team.`
-    : `We have verified that you look after ${listingName}, so the listing is now yours.`
+  const intro = live
+    ? `${listingName} is live on Isle BnB — guests can already find it. Set your password to manage the rate, photos and booking requests.`
+    : draft
+      ? `We have set up your Isle BnB account. ${listingName} is in your dashboard with the details you sent us — add your photos and it goes to our team.`
+      : `We have verified that you look after ${listingName}, so the listing is now yours.`
 
   return [
     {
       to: host.email,
-      subject: draft
-        ? `Your Isle BnB account is ready — add photos to ${listingName}`
-        : `${listingName} is yours to manage on Isle BnB`,
+      subject: live
+        ? `${listingName} is live on Isle BnB`
+        : draft
+          ? `Your Isle BnB account is ready — add photos to ${listingName}`
+          : `${listingName} is yours to manage on Isle BnB`,
       text: `Hello ${host.name || 'there'}. ${intro}\n\nSet your password here (the link is single use):\n${link}\n\nOnce you are in you can publish your nightly rate, update the description and see booking requests. Guests still pay you on arrival — Isle BnB takes no commission and no card details.`,
       html: layout(
-        `<h1 style="font-size:20px;margin:0 0 12px">${draft ? 'Your account is ready' : `${listingName} is yours to manage`}</h1>
+        `<h1 style="font-size:20px;margin:0 0 12px">${live ? `${listingName} is live` : draft ? 'Your account is ready' : `${listingName} is yours to manage`}</h1>
          <p style="font-size:14px;line-height:1.6">Hello ${host.name || 'there'}. ${intro}</p>
          <p style="margin:18px 0"><a href="${link}" style="background:#0b3f42;color:#faf6ef;padding:12px 20px;border-radius:999px;text-decoration:none;font-size:14px;font-weight:600">Set your password</a></p>
          <p style="font-size:13px;line-height:1.6;color:#07262a99">This link can be used once. You can then publish your rate, update the description and see booking requests. Guests pay you on arrival — no commission, no card details.</p>
@@ -202,7 +224,7 @@ export function hostInviteEmails(host, claim, { draft = false } = {}) {
     OPS_INBOX && {
       to: OPS_INBOX,
       subject: `Host access granted — ${listingName} (${host.email})`,
-      text: `Host access granted for ${listingName}.\n\n${host.name ?? ''} <${host.email}>\n${draft ? 'A draft listing was created from their application.' : ''}\nInvitation: ${link}`,
+      text: `Host access granted for ${listingName}.\n\n${host.name ?? ''} <${host.email}>\n${live ? 'The listing was published on approval.' : draft ? 'A draft listing was created from their application.' : ''}\nInvitation: ${link}`,
       html: layout(
         `<h1 style="font-size:20px;margin:0 0 12px">Host access granted</h1>
          <p style="font-size:14px;line-height:1.6"><strong>${listingName}</strong> is now managed by ${host.name ?? host.email} (${host.email}).</p>

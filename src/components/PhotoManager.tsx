@@ -1,19 +1,22 @@
 import { useRef, useState } from 'react'
 import { Icon } from './Icons'
-import { uploadPhoto } from '../lib/api'
+import { uploadPhoto, uploadPhotoPublic } from '../lib/api'
 import { compressImage } from '../lib/uploads'
 import { cn } from '../lib/utils'
 
 /**
  * Add, remove and reorder listing photos. The first photo is the one guests see
  * on cards, so it is labelled as the main photo and can be swapped.
+ *
+ * With a host token the photo belongs to an account; without one it is part of
+ * an application that the team reviews before anything is published.
  */
 export function PhotoManager({
   token,
   images,
   onChange,
 }: {
-  token: string
+  token?: string
   images: string[]
   onChange: (images: string[]) => void
 }) {
@@ -35,7 +38,9 @@ export function PhotoManager({
       setUploading((count) => count + 1)
       try {
         const blob = await compressImage(file)
-        const { url } = await uploadPhoto(token, blob)
+        const { url } = token
+          ? await uploadPhoto(token, blob)
+          : await uploadPhotoPublic(blob)
         next = [...next, url]
         onChange(next)
       } catch (uploadError) {

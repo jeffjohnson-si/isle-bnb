@@ -131,6 +131,7 @@ export interface ApplicationInput {
   bedrooms: number
   description: string
   amenities: string[]
+  images: string[]
   contactName: string
   email: string
   phone: string
@@ -219,6 +220,8 @@ export interface AdminApplication {
   bedrooms: number
   description: string
   amenities: string
+  /** JSON array of photo URLs, uploaded before the application was sent. */
+  images: string | null
   contact_name: string
   email: string
   phone: string
@@ -295,6 +298,8 @@ export async function setApplicationStatus(
   const data = await request<{
     application: AdminApplication
     host: HostIdentity | null
+    /** The listing created and published by the approval, if any. */
+    listing: { listingId: string; status: string } | null
     inviteUrl: string | null
     invitePath: string | null
   }>(`/api/admin/applications/${encodeURIComponent(reference)}`, {
@@ -389,15 +394,12 @@ export async function fetchHostOverview(token: string) {
 }
 
 /** Uploads one already-compressed image; returns the URL to store on the listing. */
-export async function uploadPhoto(token: string, blob: Blob) {
+async function postUpload(path: string, headers: Record<string, string>, blob: Blob) {
   let response: Response
   try {
-    response = await fetch(apiUrl('/api/host/uploads'), {
+    response = await fetch(apiUrl(path), {
       method: 'POST',
-      headers: {
-        'x-host-token': token,
-        'content-type': blob.type || 'application/octet-stream',
-      },
+      headers: { 'content-type': blob.type || 'application/octet-stream', ...headers },
       body: blob,
     })
   } catch {
@@ -410,6 +412,15 @@ export async function uploadPhoto(token: string, blob: Blob) {
     )
   }
   return payload as unknown as { url: string; bytes: number }
+}
+
+export async function uploadPhoto(token: string, blob: Blob) {
+  return postUpload('/api/host/uploads', { 'x-host-token': token }, blob)
+}
+
+/** Used by the public application form, before an account exists. */
+export async function uploadPhotoPublic(blob: Blob) {
+  return postUpload('/api/uploads', {}, blob)
 }
 
 export interface ListingContentInput {
